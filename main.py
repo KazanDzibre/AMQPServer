@@ -1,28 +1,21 @@
 import socket
 import sys
 
-sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM, 0)
+HOSTNAME = 'localhost'
+DEFAULT_PORT = 6000
+MAX_BYTES = 4096
 
-server_address = ('localhost', 10000)
+sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+
+server_address = (HOSTNAME, DEFAULT_PORT)
 sock.bind(server_address)
 
+print("server opened socket connection")
 sock.listen(1)
 
-while True:
-    # Wait for connection
-    connection, client_address = sock.accept()
+connection, client_address = sock.accept()
 
-    try:
+print("Server connected by", client_address)
+data = connection.recv(MAX_BYTES, 0)
+print(data)
 
-        # Receive the data in small chunks and retransmit it
-        while True:
-            data = connection.recv(64)
-            print(data)
-            if data:
-                connection.sendall(data)
-            else:
-                break
-
-    finally:
-        # Clean up the connection
-        connection.close()
