@@ -1,13 +1,17 @@
 import socket
 import struct
+
+from pika.compat import byte
 from pika.frame import ProtocolHeader
 from pika import data
-
+from pika.adapters.base_connection import BaseConnection
+from pika import spec
 HOSTNAME = 'localhost'
 DEFAULT_PORT = 6000
 MAX_BYTES = 4096
 str_or_bytes = (str, bytes)
 unicode_type = str
+
 
 def decode(data):
     # Look to see if it's a protocol header frame
@@ -23,26 +27,32 @@ def decode(data):
     except struct.error:
         return 0, None
 
+
+def emit_data(data):
+    #_transport.write(data)  #napisi posle i ovu funkciju
+
+
 def encode_table(pieces, table):
     table = table or {}
     length_index = len(pieces)
     pieces.append(None)
     tablesize = 0
-    for(key,value) in table.items():
+    for(key, value) in table.items():
         tablesize += data.encode_short_string(pieces, key)
         tablesize += data.encode_value(pieces, value)
     pieces[length_index] = struct.pack('>I', tablesize)
     return tablesize + 4
 
+
 def start_method_encode(version_major, version_minor, server_properties, mechanism, locales):
     pieces = list()
     pieces.append(struct.pack('B', version_major))
     pieces.append(struct.pack('B', version_minor))
-    data.encode_table(pieces, server_properties)
+    encode_table(pieces, server_properties)
     assert isinstance(mechanism, str_or_bytes),\
             'A non-string value was supplied for self.mechanism'
     value = mechanism.encode('utf-8') if isinstance(mechanism, unicode_type) else mechanism
-    pieces.append(struct.pack('>I'),len(value))
+    pieces.append(struct.pack('>I', len(value)))
     pieces.append(value)
     assert isinstance(locales, str_or_bytes),\
             'A non-string value was supplied for self.locales'
@@ -50,6 +60,22 @@ def start_method_encode(version_major, version_minor, server_properties, mechani
     pieces.append(struct.pack('>I', len(value)))
     pieces.append(value)
     return pieces
+
+
+def marshal(pieces):
+    pieces.insert(0, struct.pack('>I', 0x000A000A))
+    payload = b''.join(pieces)
+    return struct.pack('>BHI', 1, 0, len(payload)) + payload + byte(spec.FRAME_END) #frame_type = 1 channel_number = 0
+
+
+def _output_marshaled_frames(marshaled_frames):
+    #bytes_sent = 8
+    #frames_sent = 1
+    #for marshaled_frame in marshaled_frames:
+    #   bytes_sent += len(marshaled_frame)
+    #    frames_sent += 1
+    emit_data(marshaled_frames)
+
 
 sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
 
@@ -69,3 +95,7 @@ print(data)
 byte_rec, PH = decode(data)
 
 pieces = start_method_encode(0, 9, None, 'PLAIN', 'en_US')
+
+marshaled_frames = marshal(pieces)
+
+_output_marshaled_frames(marshaled_frames)
