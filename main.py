@@ -139,4 +139,6 @@ client_sock.send(marshaled_frames)
 
 data = client_sock.recv(MAX_BYTES, 0)
 
-decode(data)
+fe, method = decode(data)
+
+print(method.method.NAME)
