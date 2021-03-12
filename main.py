@@ -6,6 +6,9 @@ from pika.frame import ProtocolHeader
 from pika import data
 from pika.adapters.base_connection import BaseConnection
 from pika import spec
+from pika.frame import Method, Header
+
+
 HOSTNAME = 'localhost'
 DEFAULT_PORT = 6000
 MAX_BYTES = 4096
@@ -27,9 +30,41 @@ def decode(data):
     except struct.error:
         return 0, None
 
+    #Get the frame data
+    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
 
-def emit_data(data):
+    # We don't have all off the frame yet
+    if frame_end > len(data):
+        return 0, None
+
+    # Get the raw frame data
+    frame_data = data[spec.FRAME_HEADER_SIZE:frame_end - 1]
+    if frame_type == spec.FRAME_METHOD:
+
+        method_id = struct.unpack_from('>I', frame_data)[0]
+        method = spec.methods[method_id]()
+        method.decode(frame_data, 4)
+
+        return frame_end, Method(channel_number, method)
+
+    elif frame_type == spec.FRAME_HEADER:
+
+        class_id, weight, body_size = struct.unpack_from('>HHQ', frame_data)
+
+        properties = spec.props[class_id]()
+
+        out = properties.decode(frame_data[12:])
+
+        return frame_end, Header(channel_number, body_size, properties)
+
+    #elif frame_type == spec.FRAME_HEARTBEAT:
+    #    return frame_end, Heartbeat()
+
+
+
+#def emit_data(data):
     #_transport.write(data)  #napisi posle i ovu funkciju
+
 
 
 def encode_table(pieces, table):
@@ -98,4 +133,10 @@ pieces = start_method_encode(0, 9, None, 'PLAIN', 'en_US')
 
 marshaled_frames = marshal(pieces)
 
-_output_marshaled_frames(marshaled_frames)
+#_output_marshaled_frames(marshaled_frames)
+
+client_sock.send(marshaled_frames)
+
+data = client_sock.recv(MAX_BYTES, 0)
+
+decode(data)
