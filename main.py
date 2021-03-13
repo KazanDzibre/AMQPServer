@@ -2,7 +2,8 @@
 import socket
 import struct
 
-from pika.compat import byte
+from pika.compat import byte, as_bytes
+from pika import exceptions
 from pika.frame import ProtocolHeader
 from pika import data
 from pika.adapters.base_connection import BaseConnection
@@ -19,6 +20,17 @@ HEARTBEAT = 60
 str_or_bytes = (str, bytes)
 unicode_type = str
 
+
+def encode_short_string(pieces, value):
+    encoded_value = as_bytes(value)
+    length = len(encoded_value)
+
+    if length > 255:
+        raise exceptions.ShortStringTooLong(encoded_value)
+
+    pieces.append(struct.pack('B', length))
+    pieces.append(encoded_value)
+    return 1 + length
 
 def decode(data_in):
     # Look to see if it's a protocol header frame
@@ -99,6 +111,23 @@ def tune_method_encode(channel_max, frame_max, heartbeat):
     return pieces
 
 
+def openOk_method_encode(known_hosts):
+    pieces = list()
+    assert isinstance(known_hosts, str_or_bytes),\
+        'A non-string value was supplied for known_hosts'
+    length = encode_short_string(pieces, known_hosts)
+    return pieces
+
+def channel_openOk_method_encode(channel_id=''):
+    pieces = list()
+    assert isinstance(channel_id, str_or_bytes),\
+        'A non-string value was supplied for channel_id'
+    value = channel_id.encode('utf-8') if isinstance(channel_id, unicode_type) else channel_id
+    pieces.append(struct.pack('>I', len(value)))
+    pieces.append(value)
+    return pieces
+
+
 def marshal(pieces,INDEX):
     pieces.insert(0, struct.pack('>I', INDEX))
     payload = b''.join(pieces)
@@ -152,3 +181,24 @@ data = client_sock.recv(MAX_BYTES, 0)
 op, method = decode(data)
 
 print(method.method.NAME)
+
+pieces = openOk_method_encode('')
+
+marshaled_frames = marshal(pieces, 0x000A0029)
+
+client_sock.send(marshaled_frames)
+
+data = client_sock.recv(MAX_BYTES, 0)
+
+op_ok, method = decode(data)
+
+print(method.method.NAME)
+
+pieces = channel_openOk_method_encode('')
+
+marshaled_frames = marshal(pieces, 0x0014000B)
+
+client_sock.send(marshaled_frames)
+
+
+
