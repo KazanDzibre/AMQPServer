@@ -99,20 +99,6 @@ def tune_method_encode(channel_max, frame_max, heartbeat):
     return pieces
 
 
-def open_method_encode(virtual_host, capabilities, insist):
-    pieces = list()
-    assert isinstance(virtual_host, str_or_bytes),\
-        'A non-string value was supplied for self.virtual_host'
-    data.encode_short_string(pieces, virtual_host)
-    assert isinstance(capabilities, str_or_bytes),\
-        'A non-string value was supplied for self.capabilities'
-    data.encode_short_string(pieces, capabilities)
-    bit_buffer = 0
-    if insist:
-        bit_buffer |= 1 << 0
-    pieces.append(struct.pack('B', bit_buffer))
-    return pieces
-
 def marshal(pieces,INDEX):
     pieces.insert(0, struct.pack('>I', INDEX))
     payload = b''.join(pieces)
@@ -160,12 +146,6 @@ data = client_sock.recv(MAX_BYTES, 0)
 tu, method = decode(data)
 
 print(method.method.NAME)
-
-pieces = open_method_encode('/', '', True)
-
-marshaled_frames = marshal(pieces, 0x000A0028)
-
-client_sock.send(marshaled_frames)
 
 data = client_sock.recv(MAX_BYTES, 0)
 
