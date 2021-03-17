@@ -1,11 +1,12 @@
 # Sredi ovo kad bude radilo
 import socket
 import struct
+import _thread
 
 from pika.compat import byte, as_bytes
 from pika import spec
-from pika.spec import Connection, Channel
-from pika.frame import Method, Header, Body, Heartbeat, decode_frame
+from pika.spec import Channel, Connection
+from pika.frame import decode_frame
 
 from pika.connection import Parameters
 
@@ -16,6 +17,7 @@ FRAME_MAX = 131072
 HEARTBEAT = 60
 str_or_bytes = (str, bytes)
 unicode_type = str
+
 
 
 def marshal(pieces,INDEX):
@@ -38,7 +40,7 @@ client_sock, client_address = sock.accept()
 
 print("Server connected by", client_address)
 
-
+#prvo primi verziju protokola
 "Ovde prima verziju protokola"
 data_in = client_sock.recv(MAX_BYTES, 0)
 byte_rec, PH = decode_frame(data_in)
@@ -82,16 +84,12 @@ data_in = client_sock.recv(MAX_BYTES, 0)
 op_ok, method = decode_frame(data_in)
 
 " ###  TO DO: Napravi zapravo neki kanal ovde! "
+#Connection.channel(1)
 
 channel = Channel()
 OpenOk = channel.OpenOk()
 pieces = OpenOk.encode()
 marshaled_frames = marshal(pieces, OpenOk.INDEX)
-
 client_sock.send(marshaled_frames)
-
 data_in = client_sock.recv(MAX_BYTES, 0)
-
 qd, heartbeat = decode_frame(data_in)
-
-
