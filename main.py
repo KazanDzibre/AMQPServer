@@ -1,8 +1,9 @@
 import socket
+#from queue import Queue
 import _thread
 
 from pika import spec
-from pika.spec import Channel
+from pika.spec import Channel, Queue
 from pika.frame import decode_frame, Method
 
 from pika.connection import Parameters
@@ -84,6 +85,27 @@ method = Method(1, ChannelOpenOk)
 marshaled_frames = method.marshal()
 client_sock.send(marshaled_frames)
 
-
 data_in = client_sock.recv(MAX_BYTES, 0)
 qd, queue_declare = decode_frame(data_in)
+
+QueueDeclareOk = Queue.DeclareOk('task_queue', 0, 0)
+method = Method(1, QueueDeclareOk)
+marshaled_frames = method.marshal()
+client_sock.send(marshaled_frames)
+
+data_in = client_sock.recv(MAX_BYTES, 0)
+published_message, Basic_publish = decode_frame(data_in)
+
+print(Basic_publish.method.NAME)
+
+data_in = client_sock.recv(MAX_BYTES, 0)
+frame_end1, Header, data_in = decode_frame(data_in)
+frame_end2, Body, data_in = decode_frame(data_in)
+
+data_in = client_sock.recv(MAX_BYTES, 0)
+frame_end3, Close = decode_frame(data_in)
+
+ChannelCloseOk = Channel.CloseOk()
+method = Method(1, ChannelCloseOk)
+marshaled_frames = method.marshal()
+client_sock.send(marshaled_frames)
