@@ -1,9 +1,6 @@
-# Sredi ovo kad bude radilo
 import socket
-import struct
 import _thread
 
-from pika.compat import byte, as_bytes
 from pika import spec
 from pika.spec import Channel
 from pika.frame import decode_frame, Method
@@ -17,13 +14,6 @@ FRAME_MAX = 131072
 HEARTBEAT = 60
 str_or_bytes = (str, bytes)
 unicode_type = str
-
-
-
-def marshal(pieces,INDEX):
-    pieces.insert(0, struct.pack('>I', INDEX))
-    payload = b''.join(pieces)
-    return struct.pack('>BHI', 1, 0, len(payload)) + payload + byte(spec.FRAME_END) #frame_type = 1 channel_number = 0
 
 
 serverParameters = Parameters()
@@ -96,4 +86,4 @@ client_sock.send(marshaled_frames)
 
 
 data_in = client_sock.recv(MAX_BYTES, 0)
-qd, heartbeat = decode_frame(data_in)
+qd, queue_declare = decode_frame(data_in)
