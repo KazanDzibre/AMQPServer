@@ -1,7 +1,7 @@
 from pika.exchange_type import ExchangeType
 
 
-class AmqpQueue():
+class AmqpQueue:
     queue = []
 
     def __init__(self, name=''):
@@ -21,8 +21,10 @@ class AmqpQueue():
         print(self.queue)
 
 
-class AmqpExchange():
+class AmqpExchange:
     exchange = ''
     exchange_type = None
 
-
+    def __init__(self, exchange, exchange_type):
+        self.exchange = exchange
+        self.exchange_type = exchange_type
