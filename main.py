@@ -5,8 +5,8 @@ import _thread
 
 from pika.compat import byte, as_bytes
 from pika import spec
-from pika.spec import Channel, Connection
-from pika.frame import decode_frame
+from pika.spec import Channel
+from pika.frame import decode_frame, Method
 
 from pika.connection import Parameters
 
@@ -49,23 +49,26 @@ major = PH.major
 minor = PH.minor
 revision = PH.revision
 
-connection = Connection()
-Start = connection.Start(major, minor, None, 'PLAIN', 'en_US')
+connectionSpec = spec.Connection()
 
+Start = connectionSpec.Start(major, minor, None, 'PLAIN', 'en_US')
+method = Method(0, Start)
 "Slanje Start metode"
-pieces = Start.encode()
-marshaled_frames = marshal(pieces, Start.INDEX)
+marshaled_frames = method.marshal()
 client_sock.send(marshaled_frames)
+
+
 "Primi Start-Ok"
 data_in = client_sock.recv(MAX_BYTES, 0)
 "Ovde imam objekat StartOk"
 fe, StartOk_method = decode_frame(data_in)
 
 "Slanje Tune metode"
-Tune = connection.Tune(CHANNEL_MAX, FRAME_MAX, HEARTBEAT)
-pieces = Tune.encode()
-marshaled_frames = marshal(pieces, Tune.INDEX)
+Tune = connectionSpec.Tune(CHANNEL_MAX, FRAME_MAX, HEARTBEAT)
+method = Method(0, Tune)
+marshaled_frames = method.marshal()
 client_sock.send(marshaled_frames)
+
 "Primi TuneOK"
 data_in = client_sock.recv(MAX_BYTES, 0)
 tu, TuneOK_method = decode_frame(data_in)
@@ -74,9 +77,9 @@ tu, TuneOK_method = decode_frame(data_in)
 data_in = client_sock.recv(MAX_BYTES, 0)
 op, OpenConnection_method = decode_frame(data_in)
 
-OpenOk = connection.OpenOk('')
-pieces = OpenOk.encode()
-marshaled_frames = marshal(pieces, OpenOk.INDEX)
+OpenOk = connectionSpec.OpenOk('')
+method = Method(0, OpenOk)
+marshaled_frames = method.marshal()
 client_sock.send(marshaled_frames)
 
 "Ovde stigne channel_open, sad treba da se napravi taj channel"
@@ -86,10 +89,11 @@ op_ok, method = decode_frame(data_in)
 " ###  TO DO: Napravi zapravo neki kanal ovde! "
 #Connection.channel(1)
 
-channel = Channel()
-OpenOk = channel.OpenOk()
-pieces = OpenOk.encode()
-marshaled_frames = marshal(pieces, OpenOk.INDEX)
+ChannelOpenOk = Channel.OpenOk()
+method = Method(1, ChannelOpenOk)
+marshaled_frames = method.marshal()
 client_sock.send(marshaled_frames)
+
+
 data_in = client_sock.recv(MAX_BYTES, 0)
 qd, heartbeat = decode_frame(data_in)
