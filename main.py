@@ -1,10 +1,10 @@
 import socket
-#from queue import Queue
 import _thread
 
+from Amqp_components import AmqpQueue
 from pika import spec
 from pika.spec import Channel, Queue
-from pika.frame import decode_frame, Method
+from pika.frame import decode_frame, Method, Body
 
 from pika.connection import Parameters
 
@@ -13,9 +13,6 @@ MAX_BYTES = 4096
 CHANNEL_MAX = 2047
 FRAME_MAX = 131072
 HEARTBEAT = 60
-str_or_bytes = (str, bytes)
-unicode_type = str
-
 
 serverParameters = Parameters()
 
@@ -88,6 +85,10 @@ client_sock.send(marshaled_frames)
 data_in = client_sock.recv(MAX_BYTES, 0)
 qd, queue_declare = decode_frame(data_in)
 
+if queue_declare.method.NAME == Queue.Declare.NAME:
+    queue = AmqpQueue(queue_declare.method.queue)
+
+
 QueueDeclareOk = Queue.DeclareOk('task_queue', 0, 0)
 method = Method(1, QueueDeclareOk)
 marshaled_frames = method.marshal()
@@ -100,12 +101,20 @@ print(Basic_publish.method.NAME)
 
 data_in = client_sock.recv(MAX_BYTES, 0)
 frame_end1, Header, data_in = decode_frame(data_in)
-frame_end2, Body, data_in = decode_frame(data_in)
+frame_end2, message_body, data_in = decode_frame(data_in)
+
+if message_body.NAME == 'Body':
+    queue.append_to_queue(message_body.fragment)
+    queue.append_to_queue('nesto drugo')
+    queue.print_queue()
 
 data_in = client_sock.recv(MAX_BYTES, 0)
 frame_end3, Close = decode_frame(data_in)
 
-ChannelCloseOk = Channel.CloseOk()
-method = Method(1, ChannelCloseOk)
-marshaled_frames = method.marshal()
-client_sock.send(marshaled_frames)
+if Close.method.NAME == Channel.Close.NAME:
+    ChannelCloseOk = Channel.CloseOk()
+    method = Method(1, ChannelCloseOk)
+    marshaled_frames = method.marshal()
+    client_sock.send(marshaled_frames)
+
+client_sock.close()
