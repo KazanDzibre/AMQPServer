@@ -2,7 +2,7 @@ import socket
 
 from pika.spec import Channel, Queue, Basic, Connection
 from pika.frame import decode_frame, Method
-
+from pika.exchange_type import ExchangeType
 from pika.connection import Parameters
 
 HOSTNAME = 'localhost'
@@ -25,6 +25,7 @@ class Globals:
 
     def add_queue(self, queue):
         self.queue_dict = {queue.queue, queue}
+
 
 class AmqpQueue:
     queue = []
@@ -69,6 +70,11 @@ class Utility:
         self.client_sock, client_address = sock.accept()
         print("Server connected by", client_address)
 
+    def init_protocol(self):
+        defaultExchange = AmqpExchange('', ExchangeType.fanout)
+        Globals.exchange_dict = {defaultExchange.exchange: defaultExchange}
+        self.receive_protocol_version()
+        self.send_start_ok_method()
     def receive_protocol_version(self):
         "Primi verziju protokola"
         data_in = self.client_sock.recv(MAX_BYTES, 0)
@@ -115,6 +121,12 @@ class Utility:
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
+    def send_connection_close_ok(self):
+        ConnectionCloseOk = Connection.CloseOk()
+        method = Method(0, ConnectionCloseOk)
+        marshalled_frames = method.marshal()
+        self.client_sock.send(marshalled_frames)
+
     @staticmethod
     def decode_message(data_in):
         message = decode_frame(data_in)
@@ -143,6 +155,8 @@ class Utility:
             return self.decode_basic_publish(method)
         elif method.method.NAME == Channel.Close.NAME:
             return self.send_channel_close_ok_method()
+        elif method.method.NAME == Connection.Close.NAME:
+            return self.send_connection_close_ok()
         else:
             return 1
 
