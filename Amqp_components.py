@@ -1,8 +1,7 @@
 import socket
-from pika.spec import PROTOCOL_VERSION
 
 from pika.spec import Channel, Queue, Basic, Connection
-from pika.frame import decode_frame, Method, Body
+from pika.frame import decode_frame, Method
 
 from pika.connection import Parameters
 
@@ -18,9 +17,14 @@ serverParameters = Parameters()
 
 
 class Globals:
+    queue_num = 0
+    exchange_num = 0
     queue_dict = {}
     exchange_dict = {}
     routing_key = ''
+
+    def add_queue(self, queue):
+        self.queue_dict = {queue.queue, queue}
 
 class AmqpQueue:
     queue = []
@@ -49,6 +53,7 @@ class AmqpExchange:
     def __init__(self, exchange, exchange_type):
         self.exchange = exchange
         self.exchange_type = exchange_type
+        Globals.exchange_dict = {exchange: self}
 
 
 class Utility:
