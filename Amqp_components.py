@@ -1,6 +1,11 @@
 from pika.exchange_type import ExchangeType
 
 
+class Globals:
+    queue_dict = {}
+    exchange_dict = {}
+    routing_key = ''
+
 class AmqpQueue:
     queue = []
 
