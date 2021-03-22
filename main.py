@@ -1,6 +1,5 @@
-from Amqp_components import Utility, AmqpQueue, Globals
-from pika.spec import Connection, Channel, Queue, Basic
-from pika.frame import Frame, Method, decode_frame, ProtocolHeader
+from Amqp_components import Utility
+from pika.frame import decode_frame
 import Amqp_components
 
 utility = Utility()
