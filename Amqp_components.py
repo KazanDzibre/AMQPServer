@@ -70,11 +70,12 @@ class Utility:
         self.client_sock, client_address = sock.accept()
         print("Server connected by", client_address)
 
-    def init_protocol(self):
+    def init_protocol(self, utility):
         defaultExchange = AmqpExchange('', ExchangeType.fanout)
         Globals.exchange_dict = {defaultExchange.exchange: defaultExchange}
         self.receive_protocol_version()
         self.send_start_ok_method()
+        Utility.handler(utility)
     def receive_protocol_version(self):
         "Primi verziju protokola"
         data_in = self.client_sock.recv(MAX_BYTES, 0)
@@ -126,6 +127,15 @@ class Utility:
         method = Method(0, ConnectionCloseOk)
         marshalled_frames = method.marshal()
         self.client_sock.send(marshalled_frames)
+
+    @staticmethod
+    def handler(utility):
+        while True:
+            data_in = utility.client_sock.recv(MAX_BYTES, 0)
+            if data_in == b'':
+                break
+            byte_received, method, message = decode_frame(data_in)
+            utility.switch(method, message)
 
     @staticmethod
     def decode_message(data_in):
