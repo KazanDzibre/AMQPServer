@@ -60,6 +60,7 @@ class AmqpExchange:
 class Utility:
 
     client_sock = None
+    consumer_tag = []
 
     def __init__(self):
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
@@ -71,7 +72,7 @@ class Utility:
         print("Server connected by", client_address)
 
     def init_protocol(self, utility):
-        defaultExchange = AmqpExchange('', ExchangeType.fanout)
+        defaultExchange = AmqpExchange('default_exchange', ExchangeType.fanout)
         Globals.exchange_dict = {defaultExchange.exchange: defaultExchange}
         self.receive_protocol_version()
         self.send_start_ok_method()
@@ -128,6 +129,27 @@ class Utility:
         marshalled_frames = method.marshal()
         self.client_sock.send(marshalled_frames)
 
+    def send_basic_qos_ok_method(self):
+        basicqos = Basic.QosOk()
+        method = Method(1, basicqos)
+        marshaled_frames = method.marshal()
+        self.client_sock.send(marshaled_frames)
+
+
+    def send_basic_consume_ok_method(self):
+        basicconsumeok = Basic.ConsumeOk(self.consumer_tag[0])
+        method = Method(1, basicconsumeok)
+        marshaled_frames = method.marshal()
+        self.client_sock.send(marshaled_frames)
+        self.basic_deliver_method()
+
+    def basic_deliver_method(self):
+        basic_deliver = Basic.Deliver(self.consumer_tag[0], 178, False,
+                                      'default_exchange', 'task_queue')
+        method = Method(1, basic_deliver)
+        marshaled_frames = method.marshal()
+        self.client_sock.send(marshaled_frames)
+
     @staticmethod
     def handler(utility):
         while True:
@@ -167,7 +189,11 @@ class Utility:
             return self.send_channel_close_ok_method()
         elif method.method.NAME == Connection.Close.NAME:
             return self.send_connection_close_ok()
+        elif method.method.NAME == Basic.Qos.NAME:
+            return self.send_basic_qos_ok_method()
+        elif method.method.NAME == Basic.Consume.NAME:
+            self.consumer_tag.append(method.method.consumer_tag)
+            return self.send_basic_consume_ok_method()
         else:
             return 1
-
 
