@@ -1,9 +1,11 @@
 import socket
+import threading
 
 from pika.spec import Channel, Queue, Basic, Connection
 from pika.frame import decode_frame, Method
 from pika.exchange_type import ExchangeType
 from pika.connection import Parameters
+from pika import exceptions
 
 HOSTNAME = 'localhost'
 MAX_BYTES = 4096
@@ -15,16 +17,23 @@ MINOR = 9
 
 serverParameters = Parameters()
 
+_channels = []
+_exchange_num = 0
+_exchange_array = []
+_queue_num = 0
+_queue_array = []
+_routing_key = ''
 
-class Globals:
-    queue_num = 0
-    exchange_num = 0
-    queue_dict = {}
-    exchange_dict = {}
-    routing_key = ''
 
-    def add_queue(self, queue):
-        self.queue_dict = {queue.queue, queue}
+def get_next_channel_number():
+    limit = CHANNEL_MAX
+    if len(_channels) >= limit:
+        raise exceptions.NoFreeChannels()
+
+    for num in range(1, len(_channels)):
+        if num not in _channels:
+            return num
+    return len(_channels) + 1
 
 
 class AmqpQueue:
@@ -54,7 +63,6 @@ class AmqpExchange:
     def __init__(self, exchange, exchange_type):
         self.exchange = exchange
         self.exchange_type = exchange_type
-        Globals.exchange_dict = {exchange: self}
 
 
 class Utility:
@@ -63,82 +71,89 @@ class Utility:
     consumer_tag = []
 
     def __init__(self):
+        """declaring global variables on start"""
+        global _queue_array
+        global _queue_num
+        global _routing_key
+        global _exchange_num
+        global _exchange_array
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         server_address = (HOSTNAME, serverParameters.DEFAULT_PORT)
         sock.bind(server_address)
         print("Server opened socket connection")
         sock.listen(1)
-        self.client_sock, client_address = sock.accept()
-        print("Server connected by", client_address)
+        default_exchange = AmqpExchange('', ExchangeType.fanout)
+        _exchange_array.append(default_exchange)
+        _exchange_num += 1
+        print("Default exchange created")
+        while True:
+            self.client_sock, client_address = sock.accept()
+            x = threading.Thread(target=self.init_protocol(), args=(1,))    #utility.init_protocol(utility)
+            x.start()
 
-    def init_protocol(self, utility):
-        defaultExchange = AmqpExchange('default_exchange', ExchangeType.fanout)
-        Globals.exchange_dict = {defaultExchange.exchange: defaultExchange}
+    def init_protocol(self):
         self.receive_protocol_version()
         self.send_start_ok_method()
-        Utility.handler(utility)
+        self.handler()
+
     def receive_protocol_version(self):
-        "Primi verziju protokola"
         data_in = self.client_sock.recv(MAX_BYTES, 0)
-        byte_rec, PH = decode_frame(data_in)
-        MAJOR = PH.major
-        MINOR = PH.minor
+        byte_rec, ph = decode_frame(data_in)
 
     def send_start_ok_method(self):
-        Start = Connection.Start(MAJOR, MINOR, None, 'PLAIN', 'en_US')
-        method = Method(0, Start)
-        "Slanje Start metode"
+        start = Connection.Start(MAJOR, MINOR, None, 'PLAIN', 'en_US')
+        method = Method(0, start)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_tune_method(self):
-        "Slanje Tune metode"
         tune = Connection.Tune(CHANNEL_MAX, FRAME_MAX, HEARTBEAT)
         method = Method(0, tune)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_open_ok_method(self):
-        openOk = Connection.OpenOk('')
-        method = Method(0, openOk)
+        open_ok = Connection.OpenOk('')
+        method = Method(0, open_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_channel_open_ok_method(self):
-        channelOpenOk = Channel.OpenOk()
-        method = Method(1, channelOpenOk)
+        channel_open_ok = Channel.OpenOk()
+        channel_number = get_next_channel_number()
+        _channels.append(channel_number)
+        method = Method(channel_number, channel_open_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_queue_declare_ok_method(self, method):
         queue = AmqpQueue(method.method.queue)
-        queueDeclareOk = Queue.DeclareOk(method.method.queue, 0, 0)
-        method = Method(1, queueDeclareOk)
+        queue_declare_ok = Queue.DeclareOk(method.method.queue, 0, 0)
+        method = Method(1, queue_declare_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_channel_close_ok_method(self):
-        ChannelCloseOk = Channel.CloseOk()
-        method = Method(1, ChannelCloseOk)                       #nemoj da zaboravis da ovde posle menjas da zavisi od kanala na kom salje
+        channel_close_ok = Channel.CloseOk()
+        method = Method(1, channel_close_ok)                       #nemoj da zaboravis da ovde posle menjas da zavisi od kanala na kom salje
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_connection_close_ok(self):
-        ConnectionCloseOk = Connection.CloseOk()
-        method = Method(0, ConnectionCloseOk)
+        connection_close_ok = Connection.CloseOk()
+        method = Method(0, connection_close_ok)
         marshalled_frames = method.marshal()
         self.client_sock.send(marshalled_frames)
 
     def send_basic_qos_ok_method(self):
-        basicqos = Basic.QosOk()
-        method = Method(1, basicqos)
+        basic_qos = Basic.QosOk()
+        method = Method(1, basic_qos)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
-
     def send_basic_consume_ok_method(self):
-        basicconsumeok = Basic.ConsumeOk(self.consumer_tag[0])
-        method = Method(1, basicconsumeok)
+        basic_consume_ok = Basic.ConsumeOk(self.consumer_tag[0])
+        method = Method(1, basic_consume_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
         self.basic_deliver_method()
@@ -150,38 +165,35 @@ class Utility:
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
-    @staticmethod
-    def handler(utility):
+    def handler(self):
         while True:
-            data_in = utility.client_sock.recv(MAX_BYTES, 0)
+            data_in = self.client_sock.recv(MAX_BYTES, 0)
             if data_in == b'':
                 break
             byte_received, method, message = decode_frame(data_in)
-            utility.switch(method, message)
+            self.switch(method, message)
 
     @staticmethod
     def decode_message(data_in):
         message = decode_frame(data_in)
-        Globals.queue_dict
+        #Globals.queue_dict
 
     @staticmethod
     def decode_basic_publish(method):
-        Globals.routing_key = method.method.routing_key
+        print("nista za sad")
+        #Globals.routing_key = method.method.routing_key
 
     def switch(self, method, message):
         if message != 'nothing':
             return Utility.decode_message(message)
-        if method.method.NAME == Connection.Start.NAME:
-            return self.send_start_ok_method()
-        elif method.method.NAME == Connection.StartOk.NAME:
+        if method.method.NAME == Connection.StartOk.NAME:
             return self.send_tune_method()
         elif method.method.NAME == Connection.Open.NAME:
             return self.send_open_ok_method()
         elif method.method.NAME == Channel.Open.NAME:
             return self.send_channel_open_ok_method()
         elif method.method.NAME == Queue.Declare.NAME:
-            queue = AmqpQueue(method.method.queue)
-            Globals.queue_dict = {method.method.queue: queue}
+            _queue_array.append(AmqpQueue(method.method.queue))
             return self.send_queue_declare_ok_method(method)
         elif method.method.NAME == Basic.Publish.NAME:
             return self.decode_basic_publish(method)

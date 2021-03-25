@@ -6,13 +6,9 @@ import threading
 
 
 if __name__ == "__main__":
+    utility = Utility()
     while True:
         utility = Utility()
-        x = threading.Thread(target=utility.init_protocol(utility), args=(1,))    #utility.init_protocol(utility)
-        x.start()
-
-        x.join()
-
     print('Closing Connection...')
     utility.client_sock.close()
 
