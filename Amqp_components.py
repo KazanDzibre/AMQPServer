@@ -59,6 +59,21 @@ def decode_message_from_header(data_in):
 
     return frame_data
 
+def decode_message_from_body(data_in):
+    if data_in is not b'':
+        frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
+
+    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
+
+    if frame_end > len(data_in):
+        return None
+
+    if data_in[frame_end - 1:frame_end] != byte(spec.FRAME_END):
+        raise exceptions.InvalidFrameError("Invalid FRAME_END marker")
+
+    frame_data = data_in[spec.FRAME_HEADER_SIZE:frame_end - 1]
+
+    return frame_data
 
 def check_for_existing(array, name):
     for i in array:
@@ -222,22 +237,30 @@ class Utility:
             byte_received, method = decode_frame(data_in) #vrati posle sa message ako ne radi
             if method.NAME != Header.NAME and method.NAME != Body.NAME:
                 self.switch(method)
-            else:
+            elif method.NAME == Header.NAME:
                 message = decode_message_from_header(data_in)
                 exchange = find_exchange(self._exchange_to_publish, _exchange_array)
                 if exchange is None:
                     print("There is no exchange with that name")
                 else:
                     exchange.message_to_publish = message
+            elif method.NAME == Body.NAME:
+                message = decode_message_from_body(data_in)
+                exchange = find_exchange(self._exchange_to_publish,_exchange_array)
+                if exchange is None:
+                    print("There is no exchange with that name")
+                else:
+                    exchange.message_to_publish = message
+            else:
+                print("Not recognised Frame")
 
     def decode_basic_publish(self, method):
         self._routing_key = method.method.routing_key
         self._exchange_to_publish = method.method.exchange
 
     def switch(self, method):
-        #if message != 'nothing':
-        #    return self.decode_message(message)
         if method.method.NAME == Connection.StartOk.NAME:
+            print(_exchange_array[0].message_to_publish)
             return self.send_tune_method()
         elif method.method.NAME == Connection.Open.NAME:
             return self.send_open_ok_method()
