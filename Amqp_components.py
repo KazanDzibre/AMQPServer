@@ -29,7 +29,8 @@ _queue_array = []
 
 
 def decode_message_from_header(data_in):
-    frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
+    if data_in is not b'':
+        frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
 
     # Get the frame data
     frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
@@ -43,8 +44,20 @@ def decode_message_from_header(data_in):
 
     data_in = data_in[frame_end:]
 
-    return data_in
+    if data_in is not b'':
+        frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
 
+    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
+
+    if frame_end > len(data_in):
+        return None
+
+    if data_in[frame_end - 1:frame_end] != byte(spec.FRAME_END):
+        raise exceptions.InvalidFrameError("Invalid FRAME_END marker")
+
+    frame_data = data_in[spec.FRAME_HEADER_SIZE:frame_end - 1]
+
+    return frame_data
 
 
 def check_for_existing(array, name):
@@ -122,6 +135,7 @@ class Utility:
         print("Default exchange created")
         while True:
             self.client_sock, client_address = sock.accept()
+            print("Accepted client ", client_address)
             x = threading.Thread(target=self.init_protocol(), args=(1,))    #utility.init_protocol(utility)
             x.start()
 
@@ -167,9 +181,10 @@ class Utility:
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
-    def send_channel_close_ok_method(self):
+    def send_channel_close_ok_method(self, close_method):
         channel_close_ok = Channel.CloseOk()
-        method = Method(1, channel_close_ok)                       #nemoj da zaboravis da ovde posle menjas da zavisi od kanala na kom salje
+        _channels.remove(close_method.channel_number)
+        method = Method(close_method.channel_number, channel_close_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
@@ -205,22 +220,15 @@ class Utility:
             if data_in == b'':
                 break
             byte_received, method = decode_frame(data_in) #vrati posle sa message ako ne radi
-            if method.NAME != Header.NAME:
+            if method.NAME != Header.NAME and method.NAME != Body.NAME:
                 self.switch(method)
-            elif method.NAME == Body.NAME:
-                frame_end, body = decode_frame(method)
             else:
-                data_in = decode_message_from_header(data_in)
-                self.decode_message(data_in)
-
-    def decode_message(self, data_in):
-        frame_end, body = decode_frame(data_in)
-        message = body.fragment
-        exchange = find_exchange(self._exchange_to_publish, _exchange_array)
-        if exchange is None:
-            print('There is no exchange with that name')
-        else:
-            exchange.message_to_publish = message
+                message = decode_message_from_header(data_in)
+                exchange = find_exchange(self._exchange_to_publish, _exchange_array)
+                if exchange is None:
+                    print("There is no exchange with that name")
+                else:
+                    exchange.message_to_publish = message
 
     def decode_basic_publish(self, method):
         self._routing_key = method.method.routing_key
@@ -242,7 +250,7 @@ class Utility:
         elif method.method.NAME == Basic.Publish.NAME:
             return self.decode_basic_publish(method)
         elif method.method.NAME == Channel.Close.NAME:
-            return self.send_channel_close_ok_method()
+            return self.send_channel_close_ok_method(method)
         elif method.method.NAME == Connection.Close.NAME:
             return self.send_connection_close_ok()
         elif method.method.NAME == Basic.Qos.NAME:
