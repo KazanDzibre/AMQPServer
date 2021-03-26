@@ -1,11 +1,14 @@
 import socket
 import threading
+import struct
 
+from pika import spec
 from pika.spec import Channel, Queue, Basic, Connection
-from pika.frame import decode_frame, Method
+from pika.frame import decode_frame, Method, Header, Body
 from pika.exchange_type import ExchangeType
 from pika.connection import Parameters
 from pika import exceptions
+from pika.compat import byte
 
 HOSTNAME = 'localhost'
 MAX_BYTES = 4096
@@ -22,7 +25,33 @@ _exchange_num = 0
 _exchange_array = []
 _queue_num = 0
 _queue_array = []
-_routing_key = ''
+#_routing_key = ''
+
+
+def decode_message_from_header(data_in):
+    frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
+
+    # Get the frame data
+    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
+
+    # We don't have all of the frame yet
+    if frame_end > len(data_in):
+        return None
+
+    if data_in[frame_end - 1:frame_end] != byte(spec.FRAME_END):
+        raise exceptions.InvalidFrameError("Invalid FRAME_END marker")
+
+    data_in = data_in[frame_end:]
+
+    return data_in
+
+
+
+def check_for_existing(array, name):
+    for i in array:
+        if name == i.name:
+            return 0
+    return 1 #if there is no queue or exchange with the same name
 
 
 def get_next_channel_number():
@@ -36,6 +65,13 @@ def get_next_channel_number():
     return len(_channels) + 1
 
 
+def find_exchange(exchange, array):
+    for i in array:
+        if i.name == exchange:
+            return i
+    return None
+
+
 class AmqpQueue:
     queue = []
 
@@ -46,22 +82,18 @@ class AmqpQueue:
         # self.exclusive = exclusive
         # self.synchronous = synchronous
 
-    def append_to_queue(self, message):
-        self.queue.append(message)
-
-    def pop_from_queue(self):
-        return self.queue.pop()
-
     def print_queue(self):
         print(self.queue)
 
 
 class AmqpExchange:
-    exchange = ''
+    name = ''
     exchange_type = None
+    message_to_publish = ''
+    bound_queues = []
 
-    def __init__(self, exchange, exchange_type):
-        self.exchange = exchange
+    def __init__(self, name, exchange_type):
+        self.name = name
         self.exchange_type = exchange_type
 
 
@@ -69,12 +101,14 @@ class Utility:
 
     client_sock = None
     consumer_tag = []
+    _routing_key = ''
+    _exchange_to_publish = ''
 
     def __init__(self):
         """declaring global variables on start"""
+        global _channels
         global _queue_array
         global _queue_num
-        global _routing_key
         global _exchange_num
         global _exchange_array
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
@@ -170,22 +204,31 @@ class Utility:
             data_in = self.client_sock.recv(MAX_BYTES, 0)
             if data_in == b'':
                 break
-            byte_received, method, message = decode_frame(data_in)
-            self.switch(method, message)
+            byte_received, method = decode_frame(data_in) #vrati posle sa message ako ne radi
+            if method.NAME != Header.NAME:
+                self.switch(method)
+            elif method.NAME == Body.NAME:
+                frame_end, body = decode_frame(method)
+            else:
+                data_in = decode_message_from_header(data_in)
+                self.decode_message(data_in)
 
-    @staticmethod
-    def decode_message(data_in):
-        message = decode_frame(data_in)
-        #Globals.queue_dict
+    def decode_message(self, data_in):
+        frame_end, body = decode_frame(data_in)
+        message = body.fragment
+        exchange = find_exchange(self._exchange_to_publish, _exchange_array)
+        if exchange is None:
+            print('There is no exchange with that name')
+        else:
+            exchange.message_to_publish = message
 
-    @staticmethod
-    def decode_basic_publish(method):
-        print("nista za sad")
-        #Globals.routing_key = method.method.routing_key
+    def decode_basic_publish(self, method):
+        self._routing_key = method.method.routing_key
+        self._exchange_to_publish = method.method.exchange
 
-    def switch(self, method, message):
-        if message != 'nothing':
-            return Utility.decode_message(message)
+    def switch(self, method):
+        #if message != 'nothing':
+        #    return self.decode_message(message)
         if method.method.NAME == Connection.StartOk.NAME:
             return self.send_tune_method()
         elif method.method.NAME == Connection.Open.NAME:
@@ -193,7 +236,8 @@ class Utility:
         elif method.method.NAME == Channel.Open.NAME:
             return self.send_channel_open_ok_method()
         elif method.method.NAME == Queue.Declare.NAME:
-            _queue_array.append(AmqpQueue(method.method.queue))
+            if check_for_existing(_queue_array, method.method.queue):
+                _queue_array.append(AmqpQueue(method.method.queue))
             return self.send_queue_declare_ok_method(method)
         elif method.method.NAME == Basic.Publish.NAME:
             return self.decode_basic_publish(method)
