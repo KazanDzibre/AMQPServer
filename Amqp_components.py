@@ -256,11 +256,10 @@ class Utility:
         body = Body(1, message)
         marshaled_frames_body = body.marshal()
         basic_properties = BasicProperties()
-        header = Header(1, len(marshaled_frames_body), basic_properties)
+        header = Header(1, len(self.default_exchange.message_to_publish), basic_properties)
         marshaled_frames_header = header.marshal()
-        print("dosao ovde")
-        marshaled_frames = marshaled_frames_header + marshaled_frames_body
-        self.client_sock.send(marshaled_frames_header + marshaled_frames_body)
+        self.client_sock.send(marshaled_frames_header)
+        self.client_sock.send(marshaled_frames_body)
 
     def handler(self):
         while True:
