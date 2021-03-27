@@ -3,6 +3,7 @@ import threading
 import struct
 
 from pika import spec
+from pika.spec import BasicProperties
 from pika.spec import Channel, Queue, Basic, Connection
 from pika.frame import decode_frame, Method, Header, Body
 from pika.exchange_type import ExchangeType
@@ -59,6 +60,7 @@ def decode_message_from_header(data_in):
 
     return frame_data
 
+
 def decode_message_from_body(data_in):
     if data_in is not b'':
         frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
@@ -74,6 +76,7 @@ def decode_message_from_body(data_in):
     frame_data = data_in[spec.FRAME_HEADER_SIZE:frame_end - 1]
 
     return frame_data
+
 
 def check_for_existing(array, name):
     for i in array:
@@ -124,11 +127,20 @@ class AmqpExchange:
         self.name = name
         self.exchange_type = exchange_type
 
+    def push_message_to_all_bound_queues(self):                         #Ovo cemo samo da prosirimo za razlicite tipove exchange-a za sad je fanout tako da salje svima
+        for i in self.bound_queues:
+            i.queue.append(self.message_to_publish)
+
+    def bind_queue(self, queue_to_bind):
+        self.bound_queues.append(queue_to_bind)
+
 
 class Utility:
 
     client_sock = None
+    default_exchange = AmqpExchange('', ExchangeType.fanout)
     consumer_tag = []
+    queue_to_consume = ''
     _routing_key = ''
     _exchange_to_publish = ''
 
@@ -144,8 +156,7 @@ class Utility:
         sock.bind(server_address)
         print("Server opened socket connection")
         sock.listen(1)
-        default_exchange = AmqpExchange('', ExchangeType.fanout)
-        _exchange_array.append(default_exchange)
+        _exchange_array.append(self.default_exchange)
         _exchange_num += 1
         print("Default exchange created")
         while True:
@@ -155,6 +166,7 @@ class Utility:
             x.start()
 
     def init_protocol(self):
+        print("Init protocol...")
         self.receive_protocol_version()
         self.send_start_ok_method()
         self.handler()
@@ -164,24 +176,28 @@ class Utility:
         byte_rec, ph = decode_frame(data_in)
 
     def send_start_ok_method(self):
+        print("Start method ok...")
         start = Connection.Start(MAJOR, MINOR, None, 'PLAIN', 'en_US')
         method = Method(0, start)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_tune_method(self):
+        print("Send tune method")
         tune = Connection.Tune(CHANNEL_MAX, FRAME_MAX, HEARTBEAT)
         method = Method(0, tune)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_open_ok_method(self):
+        print("Send open_ok method")
         open_ok = Connection.OpenOk('')
         method = Method(0, open_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_channel_open_ok_method(self):
+        print("Send channel open ok method")
         channel_open_ok = Channel.OpenOk()
         channel_number = get_next_channel_number()
         _channels.append(channel_number)
@@ -190,13 +206,16 @@ class Utility:
         self.client_sock.send(marshaled_frames)
 
     def send_queue_declare_ok_method(self, method):
+        print("Send queue declare ok method")
         queue = AmqpQueue(method.method.queue)
+        self.default_exchange.bound_queues.append(queue)                #po defaultu su svi queue-ovi povezani na default_exchange
         queue_declare_ok = Queue.DeclareOk(method.method.queue, 0, 0)
         method = Method(1, queue_declare_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_channel_close_ok_method(self, close_method):
+        print("send channel close ok method")
         channel_close_ok = Channel.CloseOk()
         _channels.remove(close_method.channel_number)
         method = Method(close_method.channel_number, channel_close_ok)
@@ -204,18 +223,21 @@ class Utility:
         self.client_sock.send(marshaled_frames)
 
     def send_connection_close_ok(self):
+        print("Send connection close ok")
         connection_close_ok = Connection.CloseOk()
         method = Method(0, connection_close_ok)
         marshalled_frames = method.marshal()
         self.client_sock.send(marshalled_frames)
 
     def send_basic_qos_ok_method(self):
+        print("send basic qos ok method")
         basic_qos = Basic.QosOk()
         method = Method(1, basic_qos)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_basic_consume_ok_method(self):
+        print("send basic consume ok method")
         basic_consume_ok = Basic.ConsumeOk(self.consumer_tag[0])
         method = Method(1, basic_consume_ok)
         marshaled_frames = method.marshal()
@@ -223,11 +245,22 @@ class Utility:
         self.basic_deliver_method()
 
     def basic_deliver_method(self):
-        basic_deliver = Basic.Deliver(self.consumer_tag[0], 178, False,
-                                      'default_exchange', 'task_queue')
+        basic_deliver = Basic.Deliver(self.consumer_tag[0], 1, False,
+                                      '', self._routing_key)
         method = Method(1, basic_deliver)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
+        self.send_content(self.default_exchange.message_to_publish)
+
+    def send_content(self, message):
+        body = Body(1, message)
+        marshaled_frames_body = body.marshal()
+        basic_properties = BasicProperties()
+        header = Header(1, len(marshaled_frames_body), basic_properties)
+        marshaled_frames_header = header.marshal()
+        print("dosao ovde")
+        marshaled_frames = marshaled_frames_header + marshaled_frames_body
+        self.client_sock.send(marshaled_frames_header + marshaled_frames_body)
 
     def handler(self):
         while True:
@@ -251,6 +284,7 @@ class Utility:
                     print("There is no exchange with that name")
                 else:
                     exchange.message_to_publish = message
+                    exchange.push_message_to_all_bound_queues()
             else:
                 print("Not recognised Frame")
 
@@ -279,6 +313,7 @@ class Utility:
         elif method.method.NAME == Basic.Qos.NAME:
             return self.send_basic_qos_ok_method()
         elif method.method.NAME == Basic.Consume.NAME:
+            self._routing_key = method.method.queue
             self.consumer_tag.append(method.method.consumer_tag)
             return self.send_basic_consume_ok_method()
         else:
