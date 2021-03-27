@@ -256,7 +256,7 @@ class Utility:
         body = Body(1, message)
         marshaled_frames_body = body.marshal()
         basic_properties = BasicProperties()
-        header = Header(1, len(self.default_exchange.message_to_publish), basic_properties)
+        header = Header(1, len(self.default_exchange.message_to_publish), basic_properties)             #ovde menjaj posle da bude dinamicno za sve vrste exchange-a ovo je hard kodovano sad
         marshaled_frames_header = header.marshal()
         self.client_sock.send(marshaled_frames_header)
         self.client_sock.send(marshaled_frames_body)
