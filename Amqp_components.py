@@ -4,8 +4,8 @@ import struct
 
 from pika import spec
 from pika.spec import BasicProperties
-from pika.spec import Channel, Queue, Basic, Connection
-from pika.frame import decode_frame, Method, Header, Body
+from pika.spec import Channel, Queue, Basic, Connection, Exchange
+from pika.frame import decode_frame, Method, Header, Body, Heartbeat
 from pika.exchange_type import ExchangeType
 from pika.connection import Parameters
 from pika import exceptions
@@ -85,7 +85,7 @@ def check_for_existing(array, name):
     return 1 #if there is no queue or exchange with the same name
 
 
-def get_next_channel_number():
+def get_next_channel_number():              #mislim da ovo zapravo ne treba da imam na serveru
     limit = CHANNEL_MAX
     if len(_channels) >= limit:
         raise exceptions.NoFreeChannels()
@@ -214,6 +214,17 @@ class Utility:
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
+    def send_exchange_declare_ok(self, method):
+        print("Send exchange declare ok method")
+        exchange_declare_ok = Exchange.DeclareOk()
+        exchange = AmqpExchange(method.method.exchange, method.method.type)
+        _exchange_array.append(exchange)
+        global _exchange_num
+        _exchange_num += 1
+        method = Method(1, exchange_declare_ok)
+        marshaled_frames = method.marshal()
+        self.client_sock.send(marshaled_frames)
+
     def send_channel_close_ok_method(self, close_method):
         print("send channel close ok method")
         channel_close_ok = Channel.CloseOk()
@@ -266,10 +277,8 @@ class Utility:
             data_in = self.client_sock.recv(MAX_BYTES, 0)
             if data_in == b'':
                 break
-            byte_received, method = decode_frame(data_in) #vrati posle sa message ako ne radi
-            if method.NAME != Header.NAME and method.NAME != Body.NAME:
-                self.switch(method)
-            elif method.NAME == Header.NAME:
+            byte_received, method = decode_frame(data_in)
+            if method.NAME == Header.NAME:
                 message = decode_message_from_header(data_in)
                 exchange = find_exchange(self._exchange_to_publish, _exchange_array)
                 if exchange is None:
@@ -278,14 +287,17 @@ class Utility:
                     exchange.message_to_publish = message
             elif method.NAME == Body.NAME:
                 message = decode_message_from_body(data_in)
-                exchange = find_exchange(self._exchange_to_publish,_exchange_array)
+                exchange = find_exchange(self._exchange_to_publish, _exchange_array)
                 if exchange is None:
                     print("There is no exchange with that name")
                 else:
                     exchange.message_to_publish = message
                     exchange.push_message_to_all_bound_queues()
+            elif method.NAME == Heartbeat.NAME:
+                print("Usao u heartbeat")                       #pogledaj sta treba da radim kad posalje heartbeat
+                break
             else:
-                print("Not recognised Frame")
+                self.switch(method)
 
     def decode_basic_publish(self, method):
         self._routing_key = method.method.routing_key
@@ -303,6 +315,8 @@ class Utility:
             if check_for_existing(_queue_array, method.method.queue):
                 _queue_array.append(AmqpQueue(method.method.queue))
             return self.send_queue_declare_ok_method(method)
+        elif method.method.NAME == Exchange.Declare.NAME:
+            return self.send_exchange_declare_ok(method)
         elif method.method.NAME == Basic.Publish.NAME:
             return self.decode_basic_publish(method)
         elif method.method.NAME == Channel.Close.NAME:
