@@ -1,6 +1,6 @@
 import socket
-import threading
 import struct
+from _thread import  *
 
 from pika import spec
 from pika.spec import BasicProperties
@@ -26,7 +26,7 @@ _exchange_num = 0
 _exchange_array = []
 _queue_num = 0
 _queue_array = []
-#_routing_key = ''
+_consumers = 0
 
 
 def decode_message_from_header(data_in):
@@ -141,15 +141,14 @@ class Utility:
         server_address = (HOSTNAME, serverParameters.DEFAULT_PORT)
         sock.bind(server_address)
         print("Server opened socket connection")
-        sock.listen(1)
+        sock.listen(5)
         _exchange_array.append(self.default_exchange)
         _exchange_num += 1
         print("Default exchange created")
         while True:
             self.client_sock, client_address = sock.accept()
             print("Accepted client ", client_address)
-            x = threading.Thread(target=self.init_protocol(), args=(1,))
-            x.start()
+            start_new_thread(self.init_protocol, ())
 
     def init_protocol(self):
         print("Init protocol...")
@@ -238,6 +237,8 @@ class Utility:
 
     def send_basic_consume_ok_method(self):
         print("send basic consume ok method")
+        global _consumers
+        _consumers += 1
         basic_consume_ok = Basic.ConsumeOk(self.consumer_tag[0])
         method = Method(1, basic_consume_ok)
         marshaled_frames = method.marshal()
