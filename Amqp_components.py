@@ -82,18 +82,7 @@ def check_for_existing(array, name):
     for i in array:
         if name == i.name:
             return 0
-    return 1 #if there is no queue or exchange with the same name
-
-
-def get_next_channel_number():              #mislim da ovo zapravo ne treba da imam na serveru
-    limit = CHANNEL_MAX
-    if len(_channels) >= limit:
-        raise exceptions.NoFreeChannels()
-
-    for num in range(1, len(_channels)):
-        if num not in _channels:
-            return num
-    return len(_channels) + 1
+    return 1
 
 
 def find_exchange(exchange, array):
@@ -146,11 +135,8 @@ class Utility:
 
     def __init__(self):
         """declaring global variables on start"""
-        global _channels
-        global _queue_array
-        global _queue_num
-        global _exchange_num
         global _exchange_array
+        global _exchange_num
         sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         server_address = (HOSTNAME, serverParameters.DEFAULT_PORT)
         sock.bind(server_address)
@@ -162,7 +148,7 @@ class Utility:
         while True:
             self.client_sock, client_address = sock.accept()
             print("Accepted client ", client_address)
-            x = threading.Thread(target=self.init_protocol(), args=(1,))    #utility.init_protocol(utility)
+            x = threading.Thread(target=self.init_protocol(), args=(1,))
             x.start()
 
     def init_protocol(self):
@@ -172,6 +158,7 @@ class Utility:
         self.handler()
 
     def receive_protocol_version(self):
+        print("Received protocol version")
         data_in = self.client_sock.recv(MAX_BYTES, 0)
         byte_rec, ph = decode_frame(data_in)
 
@@ -196,10 +183,11 @@ class Utility:
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
-    def send_channel_open_ok_method(self):
+    def send_channel_open_ok_method(self, method):
         print("Send channel open ok method")
+        global _channels
         channel_open_ok = Channel.OpenOk()
-        channel_number = get_next_channel_number()
+        channel_number = method.channel_number
         _channels.append(channel_number)
         method = Method(channel_number, channel_open_ok)
         marshaled_frames = method.marshal()
@@ -210,18 +198,19 @@ class Utility:
         queue = AmqpQueue(method.method.queue)
         self.default_exchange.bound_queues.append(queue)                #po defaultu su svi queue-ovi povezani na default_exchange
         queue_declare_ok = Queue.DeclareOk(method.method.queue, 0, 0)
-        method = Method(1, queue_declare_ok)
+        method = Method(method.channel_number, queue_declare_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
     def send_exchange_declare_ok(self, method):
         print("Send exchange declare ok method")
+        global _exchange_array
+        global _exchange_num
         exchange_declare_ok = Exchange.DeclareOk()
         exchange = AmqpExchange(method.method.exchange, method.method.type)
         _exchange_array.append(exchange)
-        global _exchange_num
         _exchange_num += 1
-        method = Method(1, exchange_declare_ok)
+        method = Method(method.channel_number, exchange_declare_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
@@ -310,7 +299,7 @@ class Utility:
         elif method.method.NAME == Connection.Open.NAME:
             return self.send_open_ok_method()
         elif method.method.NAME == Channel.Open.NAME:
-            return self.send_channel_open_ok_method()
+            return self.send_channel_open_ok_method(method)
         elif method.method.NAME == Queue.Declare.NAME:
             if check_for_existing(_queue_array, method.method.queue):
                 _queue_array.append(AmqpQueue(method.method.queue))
@@ -329,6 +318,8 @@ class Utility:
             self._routing_key = method.method.queue
             self.consumer_tag.append(method.method.consumer_tag)
             return self.send_basic_consume_ok_method()
+        elif method.method.NAME == Basic.Ack.NAME:
+            print("Da prvo vidim kad udje ovde")
         else:
             return 1
 
