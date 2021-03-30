@@ -10,7 +10,6 @@ from Amqp_queue import AmqpQueue
 from Amqp_consumer import AmqpConsumer
 from Amqp_helpers import *
 
-_channels = []
 _exchange_num = 0
 _exchange_array = []
 _queue_num = 0
@@ -22,11 +21,8 @@ class Utility:
 
     client_sock = None
     default_exchange = AmqpExchange('', ExchangeType.fanout)
-    consumer_tag = []
-    queue_to_consume = ''
     _routing_key = ''
     _exchange_to_publish = ''
-    message_received = 0
 
     def __init__(self):
         """declaring global variables on start"""
@@ -79,10 +75,8 @@ class Utility:
 
     def send_channel_open_ok_method(self, method):
         print("Send channel open ok method")
-        global _channels
         channel_open_ok = Channel.OpenOk()
         channel_number = method.channel_number
-        _channels.append(channel_number)
         method = Method(channel_number, channel_open_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
@@ -105,8 +99,9 @@ class Utility:
         global _exchange_num
         exchange_declare_ok = Exchange.DeclareOk()
         exchange = AmqpExchange(method.method.exchange, method.method.type)
-        _exchange_array.append(exchange)
-        _exchange_num += 1
+        if check_for_existing(_exchange_array, exchange.name):
+            _exchange_array.append(exchange)
+            _exchange_num += 1
         method = Method(method.channel_number, exchange_declare_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
@@ -114,7 +109,6 @@ class Utility:
     def send_channel_close_ok_method(self, close_method):
         print("send channel close ok method")
         channel_close_ok = Channel.CloseOk()
-        _channels.remove(close_method.channel_number)
         method = Method(close_method.channel_number, channel_close_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
@@ -126,10 +120,10 @@ class Utility:
         marshalled_frames = method.marshal()
         self.client_sock.send(marshalled_frames)
 
-    def send_basic_qos_ok_method(self):
+    def send_basic_qos_ok_method(self, method):
         print("send basic qos ok method")
         basic_qos = Basic.QosOk()
-        method = Method(1, basic_qos)
+        method = Method(method.channel_number, basic_qos)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
@@ -148,22 +142,26 @@ class Utility:
         self.client_sock.send(marshaled_frames)
         #self.basic_deliver_method(queue.consumers_array[0].get_tag())
 
-    def basic_deliver_method(self, consumer_tag, message):
+    def basic_deliver_method(self, channel_number, consumer_tag, message):
         basic_deliver = Basic.Deliver(consumer_tag, 1, False,
                                       '', self._routing_key)
-        method = Method(1, basic_deliver)
+        method = Method(channel_number, basic_deliver)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
-        self.send_content(message)
+        self.send_content(message, channel_number)
 
-    def send_content(self, message):
-        body = Body(1, message)
+    def send_content(self, message, channel_number):
+        body = Body(channel_number, message)
         marshaled_frames_body = body.marshal()
         basic_properties = BasicProperties()
-        header = Header(1, len(self.default_exchange.message_to_publish), basic_properties)             #ovde menjaj posle da bude dinamicno za sve vrste exchange-a ovo je hard kodovano sad
+        header = Header(channel_number, len(self.default_exchange.message_to_publish), basic_properties)             #ovde menjaj posle da bude dinamicno za sve vrste exchange-a ovo je hard kodovano sad
         marshaled_frames_header = header.marshal()
         self.client_sock.send(marshaled_frames_header)
         self.client_sock.send(marshaled_frames_body)
+
+    def decode_basic_publish(self, method):
+        self._routing_key = method.method.routing_key
+        self._exchange_to_publish = method.method.exchange
 
     def handler(self):
         while True:
@@ -180,10 +178,10 @@ class Utility:
                     exchange.message_to_publish = message
                     exchange.push_message_to_all_bound_queues()
                     bound_queues = exchange.get_bound_queues()
-                    for i in bound_queues:
-                        while i.consumer_num > 0 and len(i.queue) > 0:
-                            message = i.queue.pop()
-                            self.basic_deliver_method(i.consumers_array[0].get_tag(), message)
+                    #for i in bound_queues:
+                    #    while i.consumer_num > 0 and len(i.queue) > 0:
+                    #        message = i.queue.pop()
+                    #        self.basic_deliver_method(i.consumers_array[0].get_tag(), message)
             elif method.NAME == Body.NAME:
                 message = decode_message_from_body(data_in)
                 exchange = find_item(self._exchange_to_publish, _exchange_array)
@@ -200,13 +198,9 @@ class Utility:
                 print("Usao u heartbeat")                       #pogledaj sta treba da radim kad posalje heartbeat
                 break
             else:
-                self.switch(method, self.message_received)
+                self.switch(method)
 
-    def decode_basic_publish(self, method):
-        self._routing_key = method.method.routing_key
-        self._exchange_to_publish = method.method.exchange
-
-    def switch(self, method, message_received):
+    def switch(self, method):
         if method.method.NAME == Connection.StartOk.NAME:
             print(_exchange_array[0].message_to_publish)
             return self.send_tune_method()
@@ -225,7 +219,7 @@ class Utility:
         elif method.method.NAME == Connection.Close.NAME:
             return self.send_connection_close_ok()
         elif method.method.NAME == Basic.Qos.NAME:
-            return self.send_basic_qos_ok_method()
+            return self.send_basic_qos_ok_method(method)
         elif method.method.NAME == Basic.Consume.NAME:
             return self.send_basic_consume_ok_method(method)
         elif method.method.NAME == Basic.Ack.NAME:
