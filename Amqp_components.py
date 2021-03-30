@@ -140,7 +140,6 @@ class Utility:
         method = Method(1, basic_consume_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
-        #self.basic_deliver_method(queue.consumers_array[0].get_tag())
 
     def basic_deliver_method(self, channel_number, consumer_tag, message):
         basic_deliver = Basic.Deliver(consumer_tag, 1, False,
@@ -163,6 +162,14 @@ class Utility:
         self._routing_key = method.method.routing_key
         self._exchange_to_publish = method.method.exchange
 
+    def send_messages(self):
+        if _consumers > 0:
+            for queue in _queue_array:
+                while len(queue.queue) > 0 and len(queue.consumers_array) > 0:
+                    message = queue.queue.pop()
+                    print("Sending message... ")
+                    self.basic_deliver_method(1, queue.consumers_array[0].get_tag(), message)
+
     def handler(self):
         while True:
             data_in = self.client_sock.recv(MAX_BYTES, 0)
@@ -177,11 +184,6 @@ class Utility:
                 else:
                     exchange.message_to_publish = message
                     exchange.push_message_to_all_bound_queues()
-                    bound_queues = exchange.get_bound_queues()
-                    #for i in bound_queues:
-                    #    while i.consumer_num > 0 and len(i.queue) > 0:
-                    #        message = i.queue.pop()
-                    #        self.basic_deliver_method(i.consumers_array[0].get_tag(), message)
             elif method.NAME == Body.NAME:
                 message = decode_message_from_body(data_in)
                 exchange = find_item(self._exchange_to_publish, _exchange_array)
@@ -190,15 +192,12 @@ class Utility:
                 else:
                     exchange.message_to_publish = message
                     exchange.push_message_to_all_bound_queues()
-                    bound_queues = exchange.get_bound_queues()
-                    for i in bound_queues:
-                        if i.consumer_num > 0 and len(i.queue) > 0:
-                            self.basic_deliver_method(i.consumer_tag_array[0])
             elif method.NAME == Heartbeat.NAME:
                 print("Usao u heartbeat")                       #pogledaj sta treba da radim kad posalje heartbeat
                 break
             else:
                 self.switch(method)
+            self.send_messages()
 
     def switch(self, method):
         if method.method.NAME == Connection.StartOk.NAME:
@@ -226,4 +225,3 @@ class Utility:
             print("Da prvo vidim kad udje ovde")
         else:
             return 1
-
