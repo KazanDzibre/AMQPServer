@@ -1,5 +1,6 @@
 import socket
 from _thread import *
+import _thread as thread
 
 from pika.spec import BasicProperties
 from pika.spec import Channel, Queue, Basic, Connection, Exchange
@@ -15,6 +16,9 @@ _exchange_array = []
 _queue_num = 0
 _queue_array = []
 _consumers = 0
+mutex = thread.allocate_lock()
+available_message = 0
+
 
 
 class Utility:
@@ -131,8 +135,9 @@ class Utility:
         print("send basic consume ok method")
         global _consumers
         global _queue_array
-        consumer = AmqpConsumer(method.method.consumer_tag)
+        consumer = AmqpConsumer(method.method.consumer_tag, method.method.queue)
         _consumers += 1
+        start_new_thread(self.handle_consumer, (consumer,))
         queue = find_item(method.method.queue, _queue_array)
         queue.consumer_num += 1
         queue.consumers_array.append(consumer)
@@ -162,15 +167,25 @@ class Utility:
         self._routing_key = method.method.routing_key
         self._exchange_to_publish = method.method.exchange
 
-    def send_messages(self):
-        if _consumers > 0:
-            for queue in _queue_array:
-                while len(queue.queue) > 0 and len(queue.consumers_array) > 0:
+    def handle_consumer(self, consumer):
+        global available_message
+        queue = find_item(consumer.queue, _queue_array)
+        if queue is None:
+            print("Specified queue doesn't exist")
+        elif available_message > 0:
+            while True:
+                if len(queue.queue) > 0:
                     message = queue.queue.pop()
                     print("Sending message... ")
+                    mutex.acquire()
                     self.basic_deliver_method(1, queue.consumers_array[0].get_tag(), message)
+                    available_message -= 1
+                    if available_message < 0:
+                        available_message = 0
+                    mutex.release()
 
     def handler(self):
+        global available_message
         while True:
             data_in = self.client_sock.recv(MAX_BYTES, 0)
             if data_in == b'':
@@ -184,12 +199,14 @@ class Utility:
                 else:
                     exchange.message_to_publish = message
                     exchange.push_message_to_all_bound_queues()
+                    available_message += 1
             elif method.NAME == Body.NAME:
                 message = decode_message_from_body(data_in)
                 exchange = find_item(self._exchange_to_publish, _exchange_array)
                 if exchange is None:
                     print("There is no exchange with that name")
                 else:
+                    available_message += 1
                     exchange.message_to_publish = message
                     exchange.push_message_to_all_bound_queues()
             elif method.NAME == Heartbeat.NAME:
@@ -197,7 +214,6 @@ class Utility:
                 break
             else:
                 self.switch(method)
-            self.send_messages()
 
     def switch(self, method):
         if method.method.NAME == Connection.StartOk.NAME:
