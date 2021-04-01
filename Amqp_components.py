@@ -1,6 +1,5 @@
 import socket
-from _thread import *
-import _thread as thread
+import threading
 
 from pika.spec import BasicProperties
 from pika.spec import Channel, Queue, Basic, Connection, Exchange
@@ -16,9 +15,9 @@ _exchange_array = []
 _queue_num = 0
 _queue_array = []
 _consumers = 0
-mutex = thread.allocate_lock()
 available_message = 0
-
+threadLock = threading.Lock()
+event = threading.Event()
 
 
 class Utility:
@@ -43,7 +42,8 @@ class Utility:
         while True:
             self.client_sock, client_address = sock.accept()
             print("Accepted client ", client_address)
-            start_new_thread(self.init_protocol, ())
+            t = threading.Thread(target=self.init_protocol)
+            t.start()
 
     def init_protocol(self):
         print("Init protocol...")
@@ -137,7 +137,8 @@ class Utility:
         global _queue_array
         consumer = AmqpConsumer(method.method.consumer_tag, method.method.queue)
         _consumers += 1
-        start_new_thread(self.handle_consumer, (consumer,))
+        consumer_thread = threading.Thread(target=self.handle_consumer, args=[consumer])
+        consumer_thread.start()
         queue = find_item(method.method.queue, _queue_array)
         queue.consumer_num += 1
         queue.consumers_array.append(consumer)
@@ -168,21 +169,19 @@ class Utility:
         self._exchange_to_publish = method.method.exchange
 
     def handle_consumer(self, consumer):
-        global available_message
         queue = find_item(consumer.queue, _queue_array)
         if queue is None:
             print("Specified queue doesn't exist")
-        elif available_message > 0:
-            while True:
-                if len(queue.queue) > 0:
-                    message = queue.queue.pop()
-                    print("Sending message... ")
-                    mutex.acquire()
-                    self.basic_deliver_method(1, queue.consumers_array[0].get_tag(), message)
-                    available_message -= 1
-                    if available_message < 0:
-                        available_message = 0
-                    mutex.release()
+        while True:
+            event.wait()
+            while len(queue.queue) > 0:
+                threadLock.acquire()
+                message = queue.queue.pop()
+                print("Sending message... ")
+                self.basic_deliver_method(1, consumer.get_tag(), message)
+                print("Message sent... ")
+                threadLock.release()
+            event.clear()
 
     def handler(self):
         global available_message
@@ -198,16 +197,17 @@ class Utility:
                     print("There is no exchange with that name")
                 else:
                     exchange.message_to_publish = message
+                    print("Stigla poruka")
+                    event.set()
                     exchange.push_message_to_all_bound_queues()
-                    available_message += 1
             elif method.NAME == Body.NAME:
                 message = decode_message_from_body(data_in)
                 exchange = find_item(self._exchange_to_publish, _exchange_array)
                 if exchange is None:
                     print("There is no exchange with that name")
                 else:
-                    available_message += 1
                     exchange.message_to_publish = message
+                    event.set()
                     exchange.push_message_to_all_bound_queues()
             elif method.NAME == Heartbeat.NAME:
                 print("Usao u heartbeat")                       #pogledaj sta treba da radim kad posalje heartbeat
@@ -217,7 +217,6 @@ class Utility:
 
     def switch(self, method):
         if method.method.NAME == Connection.StartOk.NAME:
-            print(_exchange_array[0].message_to_publish)
             return self.send_tune_method()
         elif method.method.NAME == Connection.Open.NAME:
             return self.send_open_ok_method()
