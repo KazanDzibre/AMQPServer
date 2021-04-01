@@ -18,6 +18,7 @@ _consumers = 0
 available_message = 0
 threadLock = threading.Lock()
 event = threading.Event()
+delivery_tag = 1
 
 
 class Utility:
@@ -148,21 +149,23 @@ class Utility:
         self.client_sock.send(marshaled_frames)
 
     def basic_deliver_method(self, channel_number, consumer_tag, message):
-        basic_deliver = Basic.Deliver(consumer_tag, 1, False,
+        global delivery_tag
+        basic_deliver = Basic.Deliver(consumer_tag, delivery_tag, False,
                                       '', self._routing_key)
+        delivery_tag += 1
         method = Method(channel_number, basic_deliver)
         marshaled_frames = method.marshal()
-        self.client_sock.send(marshaled_frames)
-        self.send_content(message, channel_number)
+        string_to_send = self.prepare_content(message, channel_number)
+        string_to_send = marshaled_frames + string_to_send
+        self.client_sock.send(string_to_send)
 
-    def send_content(self, message, channel_number):
+    def prepare_content(self, message, channel_number):
         body = Body(channel_number, message)
         marshaled_frames_body = body.marshal()
         basic_properties = BasicProperties()
         header = Header(channel_number, len(self.default_exchange.message_to_publish), basic_properties)             #ovde menjaj posle da bude dinamicno za sve vrste exchange-a ovo je hard kodovano sad
         marshaled_frames_header = header.marshal()
-        self.client_sock.send(marshaled_frames_header)
-        self.client_sock.send(marshaled_frames_body)
+        return marshaled_frames_header + marshaled_frames_body
 
     def decode_basic_publish(self, method):
         self._routing_key = method.method.routing_key
