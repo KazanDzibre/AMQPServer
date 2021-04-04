@@ -28,23 +28,17 @@ class Utility:
     _routing_key = ''
     _exchange_to_publish = ''
 
-    def __init__(self):
+    def __init__(self, client_socket):
         """declaring global variables on start"""
         global _exchange_array
         global _exchange_num
-        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        server_address = (HOSTNAME, serverParameters.DEFAULT_PORT)
-        sock.bind(server_address)
         print("Server opened socket connection")
-        sock.listen(5)
+        self.client_sock = client_socket
         _exchange_array.append(self.default_exchange)
         _exchange_num += 1
         print("Default exchange created")
-        while True:
-            self.client_sock, client_address = sock.accept()
-            print("Accepted client ", client_address)
-            t = threading.Thread(target=self.init_protocol)
-            t.start()
+        t = threading.Thread(target=self.init_protocol)
+        t.start()
 
     def init_protocol(self):
         print("Init protocol...")
@@ -178,12 +172,10 @@ class Utility:
         while True:
             event.wait()
             while len(queue.queue) > 0:
-                threadLock.acquire()
                 message = queue.queue.pop()
                 print("Sending message... ")
                 self.basic_deliver_method(1, consumer.get_tag(), message)
                 print("Message sent... ")
-                threadLock.release()
             event.clear()
 
     def handler(self):
