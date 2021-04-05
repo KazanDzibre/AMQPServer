@@ -10,12 +10,13 @@ from Amqp_queue import AmqpQueue
 from Amqp_consumer import AmqpConsumer
 from Amqp_helpers import *
 
+threadLock = threading.Lock()
+
 _exchange_num = 0
 _exchange_array = []
 _queue_num = 0
 _queue_array = []
 _consumers = 0
-available_message = 0
 threadLock = threading.Lock()
 event = threading.Event()
 delivery_tag = 1
@@ -34,7 +35,9 @@ class Utility:
         global _exchange_num
         print("Server opened socket connection")
         self.client_sock = client_socket
+        threadLock.acquire()
         _exchange_array.append(self.default_exchange)
+        threadLock.release()
         _exchange_num += 1
         print("Default exchange created")
         t = threading.Thread(target=self.init_protocol)
@@ -86,7 +89,9 @@ class Utility:
         global _queue_array
         if check_for_existing(self.default_exchange.bound_queues, queue.name):
             self.default_exchange.bound_queues.append(queue)                #po defaultu su svi queue-ovi povezani na default_exchange
+            threadLock.acquire()
             _queue_array.append(queue)
+            threadLock.release()
         queue_declare_ok = Queue.DeclareOk(method.method.queue, 0, 0)
         method = Method(method.channel_number, queue_declare_ok)
         marshaled_frames = method.marshal()
@@ -99,7 +104,9 @@ class Utility:
         exchange_declare_ok = Exchange.DeclareOk()
         exchange = AmqpExchange(method.method.exchange, method.method.type)
         if check_for_existing(_exchange_array, exchange.name):
+            threadLock.acquire()
             _exchange_array.append(exchange)
+            threadLock.release()
             _exchange_num += 1
         method = Method(method.channel_number, exchange_declare_ok)
         marshaled_frames = method.marshal()
@@ -179,7 +186,6 @@ class Utility:
             event.clear()
 
     def handler(self):
-        global available_message
         while True:
             data_in = self.client_sock.recv(MAX_BYTES, 0)
             if data_in == b'':
@@ -192,9 +198,9 @@ class Utility:
                     print("There is no exchange with that name")
                 else:
                     exchange.message_to_publish = message
-                    print("Stigla poruka")
+                    print("Message received")
+                    exchange.push_message_to_all_bound_queues(exchange.exchange_type)
                     event.set()
-                    exchange.push_message_to_all_bound_queues()
             elif method.NAME == Body.NAME:
                 message = decode_message_from_body(data_in)
                 exchange = find_item(self._exchange_to_publish, _exchange_array)
@@ -205,7 +211,7 @@ class Utility:
                     event.set()
                     exchange.push_message_to_all_bound_queues()
             elif method.NAME == Heartbeat.NAME:
-                print("Usao u heartbeat")                       #pogledaj sta treba da radim kad posalje heartbeat
+                print("Waiting for messages...")                       #pogledaj sta treba da radim kad posalje heartbeat
                 break
             else:
                 self.switch(method)
@@ -232,6 +238,6 @@ class Utility:
         elif method.method.NAME == Basic.Consume.NAME:
             return self.send_basic_consume_ok_method(method)
         elif method.method.NAME == Basic.Ack.NAME:
-            print("Da prvo vidim kad udje ovde")
+            print("Message delivered")
         else:
             return 1
