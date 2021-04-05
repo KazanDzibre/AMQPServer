@@ -25,7 +25,7 @@ delivery_tag = 1
 class Utility:
 
     client_sock = None
-    default_exchange = AmqpExchange('', ExchangeType.fanout)
+    default_exchange = AmqpExchange('', ExchangeType.fanout.value)
     _routing_key = ''
     _exchange_to_publish = ''
 
@@ -106,8 +106,8 @@ class Utility:
         if check_for_existing(_exchange_array, exchange.name):
             threadLock.acquire()
             _exchange_array.append(exchange)
-            threadLock.release()
             _exchange_num += 1
+            threadLock.release()
         method = Method(method.channel_number, exchange_declare_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
@@ -169,7 +169,9 @@ class Utility:
         return marshaled_frames_header + marshaled_frames_body
 
     def decode_basic_publish(self, method):
-        self._routing_key = method.method.routing_key
+        exchange = find_item(method.method.exchange, _exchange_array)
+        if exchange is not None:
+            exchange.set_routing_key(method.method.routing_key)
         self._exchange_to_publish = method.method.exchange
 
     def handle_consumer(self, consumer):
