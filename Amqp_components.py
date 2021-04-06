@@ -20,6 +20,7 @@ _consumers = 0
 threadLock = threading.Lock()
 event = threading.Event()
 delivery_tag = 1
+DEFAULT_EXCHANGE = ''
 
 
 class Utility:
@@ -85,15 +86,37 @@ class Utility:
 
     def send_queue_declare_ok_method(self, method):
         print("Send queue declare ok method")
-        queue = AmqpQueue(method.method.queue)
+        if method.method.queue == '':
+            queue_name = random_queue_name_gen()
+            queue = AmqpQueue(queue_name)
+        else:
+            queue = AmqpQueue(method.method.queue)
         global _queue_array
-        if check_for_existing(self.default_exchange.bound_queues, queue.name):
-            self.default_exchange.bound_queues.append(queue)                #po defaultu su svi queue-ovi povezani na default_exchange
+        global _exchange_array
+        exchange = find_item(DEFAULT_EXCHANGE, _exchange_array)
+        if check_for_existing(exchange.bound_queues, queue.name):
+            exchange.bind_queue(queue)                #po defaultu su svi queue-ovi povezani na default_exchange
             threadLock.acquire()
             _queue_array.append(queue)
             threadLock.release()
-        queue_declare_ok = Queue.DeclareOk(method.method.queue, 0, 0)
+        queue_declare_ok = Queue.DeclareOk(queue.name, 0, 0)
         method = Method(method.channel_number, queue_declare_ok)
+        marshaled_frames = method.marshal()
+        self.client_sock.send(marshaled_frames)
+
+    def send_queue_bind_ok_method(self, method):
+        exchange_to_bind = method.method.exchange
+        queue_to_bind = method.method.queue
+        routing_key = method.method.routing_key
+        queue = find_item(queue_to_bind, _queue_array)
+        exchange = find_item(exchange_to_bind, _exchange_array)
+        queue.routing_key = routing_key
+        if check_for_existing(exchange.bound_queues, queue.name):
+            threadLock.acquire()
+            exchange.bound_queues.append(queue)
+            threadLock.release()
+        queue_bind_ok = Queue.BindOk()
+        method = Method(method.channel_number, queue_bind_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
@@ -227,6 +250,8 @@ class Utility:
             return self.send_channel_open_ok_method(method)
         elif method.method.NAME == Queue.Declare.NAME:
             return self.send_queue_declare_ok_method(method)
+        elif method.method.NAME == Queue.Bind.NAME:
+            return self.send_queue_bind_ok_method(method)
         elif method.method.NAME == Exchange.Declare.NAME:
             return self.send_exchange_declare_ok(method)
         elif method.method.NAME == Basic.Publish.NAME:

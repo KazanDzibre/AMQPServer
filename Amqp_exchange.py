@@ -12,13 +12,13 @@ class AmqpExchange:
         self.name = name
         self.exchange_type = exchange_type
 
-    def push_message_to_all_bound_queues(self, type):                         #Ovo cemo samo da prosirimo za razlicite tipove exchange-a za sad je fanout tako da salje svima
+    def push_message_to_all_bound_queues(self, type):  # Ovo cemo samo da prosirimo za razlicite tipove exchange-a za sad je fanout tako da salje svima
         if type == ExchangeType.fanout.value:
             for i in self.bound_queues:
                 i.queue.append(self.message_to_publish)
         elif type == ExchangeType.direct.value:
             for i in self.bound_queues:
-                if i.queue.name == self.routing_key:
+                if i.queue.routing_key == self.routing_key:
                     i.queue.append(self.message_to_publish)
         elif type == ExchangeType.headers.value:
             print("ovde cemo za headers")

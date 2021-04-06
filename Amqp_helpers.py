@@ -3,6 +3,8 @@ import struct
 from pika import exceptions
 from pika.compat import byte
 from pika.connection import Parameters
+import random
+import string
 
 HOSTNAME = 'localhost'
 MAX_BYTES = 4096
@@ -77,3 +79,14 @@ def find_item(item, array):
             return i
     return None
 
+
+def random_queue_name_gen():
+    basic_str = 'amq.gen-'
+    random_str = string.ascii_letters
+    pick_some = ''
+    for i in range(11):
+        pick_some += random_str[i]
+
+    whole_string = basic_str + pick_some
+
+    return whole_string
