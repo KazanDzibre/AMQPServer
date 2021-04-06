@@ -9,6 +9,7 @@ from Amqp_exchange import AmqpExchange
 from Amqp_queue import AmqpQueue
 from Amqp_consumer import AmqpConsumer
 from Amqp_helpers import *
+from Amqp_bindings import AmqpBinding
 
 threadLock = threading.Lock()
 
@@ -21,6 +22,7 @@ threadLock = threading.Lock()
 event = threading.Event()
 delivery_tag = 1
 DEFAULT_EXCHANGE = ''
+bindings = AmqpBinding()
 
 
 class Utility:
@@ -94,8 +96,8 @@ class Utility:
         global _queue_array
         global _exchange_array
         exchange = find_item(DEFAULT_EXCHANGE, _exchange_array)
-        if check_for_existing(exchange.bound_queues, queue.name):
-            exchange.bind_queue(queue)                #po defaultu su svi queue-ovi povezani na default_exchange
+        if bindings.check_for_binding(exchange.name, queue.name, '') is False:
+            bindings.bind(exchange.name, queue.name, '')                                     #svaki prijavljeni queue se odma vezuje na default exchange
             threadLock.acquire()
             _queue_array.append(queue)
             threadLock.release()
@@ -110,10 +112,9 @@ class Utility:
         routing_key = method.method.routing_key
         queue = find_item(queue_to_bind, _queue_array)
         exchange = find_item(exchange_to_bind, _exchange_array)
-        queue.routing_key = routing_key
-        if check_for_existing(exchange.bound_queues, queue.name):
+        if bindings.check_for_binding(exchange.name, queue.name, routing_key) is False:
             threadLock.acquire()
-            exchange.bound_queues.append(queue)
+            bindings.bind(exchange.name, queue.name, routing_key)
             threadLock.release()
         queue_bind_ok = Queue.BindOk()
         method = Method(method.channel_number, queue_bind_ok)
@@ -224,7 +225,8 @@ class Utility:
                 else:
                     exchange.message_to_publish = message
                     print("Message received")
-                    exchange.push_message_to_all_bound_queues(exchange.exchange_type)
+                    exchange.push_message_to_all_bound_queues(exchange.exchange_type, bindings.bindings_list,
+                                                              _queue_array)
                     event.set()
             elif method.NAME == Body.NAME:
                 message = decode_message_from_body(data_in)
@@ -234,7 +236,8 @@ class Utility:
                 else:
                     exchange.message_to_publish = message
                     event.set()
-                    exchange.push_message_to_all_bound_queues()
+                    exchange.push_message_to_all_bound_queues(exchange.exchange_type, bindings.bindings_list,
+                                                              _queue_array)
             elif method.NAME == Heartbeat.NAME:
                 print("Waiting for messages...")                       #pogledaj sta treba da radim kad posalje heartbeat
                 break
