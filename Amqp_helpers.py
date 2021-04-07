@@ -73,3 +73,57 @@ def random_queue_name_gen():
     whole_string = basic_str + pick_some
 
     return whole_string
+
+
+def find_topic_routing_keys(array):
+    list_of_keys = []
+    list_of_topic_keys = []
+    for i in array:
+        list_of_keys.append(i[2])
+
+    for routing_key in list_of_keys:
+        for i in routing_key:
+            if i == '.':
+                list_of_topic_keys.append(routing_key)
+                break
+    return list_of_topic_keys
+
+
+def check_for_binding(list_of_bindings, key):
+    routing_key = key.split('.')
+    list_of_checked_keys = []
+    for i in list_of_bindings:
+        split_key = i.split('.')
+        if check_for_sign(split_key, '*'):
+            if compare_keys_for_star(routing_key, split_key):
+                list_of_checked_keys.append(i)
+        if check_for_sign(split_key, '#'):
+            if compare_key_for_hash(routing_key, split_key):
+                list_of_checked_keys.append(i)
+    return list_of_checked_keys
+
+
+def check_for_sign(list_of_strings, sign):
+    no_sign = False
+    for i in list_of_strings:
+        if i == sign:
+            no_sign = True
+    return no_sign
+
+
+def compare_keys_for_star(string1, string2):
+    if len(string1) is not len(string2):
+        return False
+    for i in range(len(string1)):
+        if (string1[i] == string2[i]) or (string2[i] == '*'):
+            print('ok')
+        else:
+            return False
+    return True
+
+
+def compare_key_for_hash(string1, string2):
+    if string1[0] == string2[0]:
+        return True
+    else:
+        return False

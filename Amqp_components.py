@@ -23,6 +23,7 @@ event = threading.Event()
 delivery_tag = 1
 DEFAULT_EXCHANGE = ''
 bindings = AmqpBinding()
+_routing_key = ''
 
 
 class Utility:
@@ -164,6 +165,7 @@ class Utility:
         _consumers += 1
         consumer_thread = threading.Thread(target=self.handle_consumer, args=[consumer, method.channel_number, ])
         consumer_thread.start()
+        event.set()
         basic_consume_ok = Basic.ConsumeOk(consumer.get_tag())
         method = Method(method.channel_number, basic_consume_ok)
         marshaled_frames = method.marshal()
@@ -171,8 +173,9 @@ class Utility:
 
     def basic_deliver_method(self, channel_number, consumer_tag, message):
         global delivery_tag
+        global _routing_key
         basic_deliver = Basic.Deliver(consumer_tag, delivery_tag, False,
-                                      '', self._routing_key)
+                                      '', _routing_key)
         delivery_tag += 1
         method = Method(channel_number, basic_deliver)
         marshaled_frames = method.marshal()
@@ -191,8 +194,10 @@ class Utility:
         return marshaled_frames_header + marshaled_frames_body
 
     def decode_basic_publish(self, method):
+        global _routing_key
         exchange = find_item(method.method.exchange, _exchange_array)
         routing_key = method.method.routing_key
+        _routing_key = routing_key
         data_in = self.client_sock.recv(MAX_BYTES, 0)
         byte_received, method = decode_frame(data_in)
         if method.NAME == Header.NAME:
