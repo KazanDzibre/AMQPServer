@@ -49,23 +49,6 @@ def decode_message_from_header(data_in):
     return frame_data
 
 
-def decode_message_from_body(data_in):
-    if data_in is not b'':
-        frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
-
-    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
-
-    if frame_end > len(data_in):
-        return None
-
-    if data_in[frame_end - 1:frame_end] != byte(spec.FRAME_END):
-        raise exceptions.InvalidFrameError("Invalid FRAME_END marker")
-
-    frame_data = data_in[spec.FRAME_HEADER_SIZE:frame_end - 1]
-
-    return frame_data
-
-
 def check_for_existing(array, name):
     for i in array:
         if name == i.name:

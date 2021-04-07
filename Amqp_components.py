@@ -26,7 +26,6 @@ bindings = AmqpBinding()
 
 
 class Utility:
-
     client_sock = None
     default_exchange = AmqpExchange('', ExchangeType.fanout.value)
     _routing_key = ''
@@ -40,8 +39,8 @@ class Utility:
         self.client_sock = client_socket
         threadLock.acquire()
         _exchange_array.append(self.default_exchange)
-        threadLock.release()
         _exchange_num += 1
+        threadLock.release()
         print("Default exchange created")
         t = threading.Thread(target=self.init_protocol)
         t.start()
@@ -49,7 +48,7 @@ class Utility:
     def init_protocol(self):
         print("Init protocol...")
         self.receive_protocol_version()
-        self.send_start_ok_method()
+        self.send_start_method()
         self.handler()
 
     def receive_protocol_version(self):
@@ -57,7 +56,7 @@ class Utility:
         data_in = self.client_sock.recv(MAX_BYTES, 0)
         byte_rec, ph = decode_frame(data_in)
 
-    def send_start_ok_method(self):
+    def send_start_method(self):
         print("Start method ok...")
         start = Connection.Start(MAJOR, MINOR, None, 'PLAIN', 'en_US')
         method = Method(0, start)
@@ -97,7 +96,7 @@ class Utility:
         global _exchange_array
         exchange = find_item(DEFAULT_EXCHANGE, _exchange_array)
         if bindings.check_for_binding(exchange.name, queue.name, '') is False:
-            bindings.bind(exchange.name, queue.name, '')                                     #svaki prijavljeni queue se odma vezuje na default exchange
+            bindings.bind(exchange.name, queue.name, '')  # svaki prijavljeni queue se odma vezuje na default exchange
             threadLock.acquire()
             _queue_array.append(queue)
             threadLock.release()
@@ -107,11 +106,11 @@ class Utility:
         self.client_sock.send(marshaled_frames)
 
     def send_queue_bind_ok_method(self, method):
-        exchange_to_bind = method.method.exchange
-        queue_to_bind = method.method.queue
+        exchange_to_bind = method.method.exchange  # src
+        queue_to_bind = method.method.queue  # dst
         routing_key = method.method.routing_key
-        queue = find_item(queue_to_bind, _queue_array)
         exchange = find_item(exchange_to_bind, _exchange_array)
+        queue = find_item(queue_to_bind, _queue_array)
         if bindings.check_for_binding(exchange.name, queue.name, routing_key) is False:
             threadLock.acquire()
             bindings.bind(exchange.name, queue.name, routing_key)
@@ -163,13 +162,10 @@ class Utility:
         global _queue_array
         consumer = AmqpConsumer(method.method.consumer_tag, method.method.queue)
         _consumers += 1
-        consumer_thread = threading.Thread(target=self.handle_consumer, args=[consumer])
+        consumer_thread = threading.Thread(target=self.handle_consumer, args=[consumer, method.channel_number, ])
         consumer_thread.start()
-        queue = find_item(method.method.queue, _queue_array)
-        queue.consumer_num += 1
-        queue.consumers_array.append(consumer)
-        basic_consume_ok = Basic.ConsumeOk(queue.consumers_array[0].get_tag())
-        method = Method(1, basic_consume_ok)
+        basic_consume_ok = Basic.ConsumeOk(consumer.get_tag())
+        method = Method(method.channel_number, basic_consume_ok)
         marshaled_frames = method.marshal()
         self.client_sock.send(marshaled_frames)
 
@@ -184,21 +180,30 @@ class Utility:
         string_to_send = marshaled_frames + string_to_send
         self.client_sock.send(string_to_send)
 
-    def prepare_content(self, message, channel_number):
+    @staticmethod
+    def prepare_content(message, channel_number):
         body = Body(channel_number, message)
         marshaled_frames_body = body.marshal()
         basic_properties = BasicProperties()
-        header = Header(channel_number, len(self.default_exchange.message_to_publish), basic_properties)             #ovde menjaj posle da bude dinamicno za sve vrste exchange-a ovo je hard kodovano sad
+        header = Header(channel_number, len(message),
+                        basic_properties)  # ovde menjaj posle da bude dinamicno za sve vrste exchange-a ovo je hard kodovano sad
         marshaled_frames_header = header.marshal()
         return marshaled_frames_header + marshaled_frames_body
 
     def decode_basic_publish(self, method):
         exchange = find_item(method.method.exchange, _exchange_array)
-        if exchange is not None:
-            exchange.set_routing_key(method.method.routing_key)
-        self._exchange_to_publish = method.method.exchange
+        routing_key = method.method.routing_key
+        data_in = self.client_sock.recv(MAX_BYTES, 0)
+        byte_received, method = decode_frame(data_in)
+        if method.NAME == Header.NAME:
+            message = decode_message_from_header(data_in)
+            exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message,
+                                                      routing_key)
+            event.set()
+        else:
+            print("Error: couldn't receive message...")
 
-    def handle_consumer(self, consumer):
+    def handle_consumer(self, consumer, channel_number):
         queue = find_item(consumer.queue, _queue_array)
         if queue is None:
             print("Specified queue doesn't exist")
@@ -207,7 +212,7 @@ class Utility:
             while len(queue.queue) > 0:
                 message = queue.queue.pop()
                 print("Sending message... ")
-                self.basic_deliver_method(1, consumer.get_tag(), message)
+                self.basic_deliver_method(channel_number, consumer.get_tag(), message)
                 print("Message sent... ")
             event.clear()
 
@@ -217,29 +222,8 @@ class Utility:
             if data_in == b'':
                 break
             byte_received, method = decode_frame(data_in)
-            if method.NAME == Header.NAME:
-                message = decode_message_from_header(data_in)
-                exchange = find_item(self._exchange_to_publish, _exchange_array)
-                if exchange is None:
-                    print("There is no exchange with that name")
-                else:
-                    exchange.message_to_publish = message
-                    print("Message received")
-                    exchange.push_message_to_all_bound_queues(exchange.exchange_type, bindings.bindings_list,
-                                                              _queue_array)
-                    event.set()
-            elif method.NAME == Body.NAME:
-                message = decode_message_from_body(data_in)
-                exchange = find_item(self._exchange_to_publish, _exchange_array)
-                if exchange is None:
-                    print("There is no exchange with that name")
-                else:
-                    exchange.message_to_publish = message
-                    event.set()
-                    exchange.push_message_to_all_bound_queues(exchange.exchange_type, bindings.bindings_list,
-                                                              _queue_array)
-            elif method.NAME == Heartbeat.NAME:
-                print("Waiting for messages...")                       #pogledaj sta treba da radim kad posalje heartbeat
+            if method.NAME == Heartbeat.NAME:
+                print("Waiting for messages...")  # pogledaj sta treba da radim kad posalje heartbeat
                 break
             else:
                 self.switch(method)
