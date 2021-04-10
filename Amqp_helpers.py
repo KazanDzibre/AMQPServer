@@ -7,7 +7,7 @@ import random
 import string
 
 HOSTNAME = 'localhost'
-MAX_BYTES = 4096
+MAX_BYTES = 1000
 CHANNEL_MAX = 2047
 FRAME_MAX = 131072
 HEARTBEAT = 60
@@ -46,6 +46,35 @@ def decode_message_from_header(data_in):
 
     frame_data = data_in[spec.FRAME_HEADER_SIZE:frame_end - 1]
 
+    return frame_data
+
+
+def decode_message_from_body(data_in):
+    if data_in is not b'':
+        frame_type, channel_number, frame_size = struct.unpack('>BHL', data_in[0:7])
+
+    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
+
+    if frame_end > len(data_in):
+        return None
+
+    if data_in[frame_end - 1:frame_end] != byte(spec.FRAME_END):
+        raise exceptions.InvalidFrameError("Invalid FRAME_END marker")
+
+    frame_data = data_in[spec.FRAME_HEADER_SIZE:frame_end - 1]
+
+    return frame_data
+
+
+def decode_publish_further(data_in):
+    try:
+        (frame_type, channel_number, frame_size) = struct.unpack(
+            '>BHL', data_in[0:7])
+    except struct.error:
+        return 0, None
+
+    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
+    frame_data = data_in[frame_end:]
     return frame_data
 
 

@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 
 from pika.spec import BasicProperties
 from pika.spec import Channel, Queue, Basic, Connection, Exchange
@@ -10,6 +11,7 @@ from Amqp_queue import AmqpQueue
 from Amqp_consumer import AmqpConsumer
 from Amqp_helpers import *
 from Amqp_bindings import AmqpBinding
+
 
 threadLock = threading.Lock()
 
@@ -193,20 +195,34 @@ class Utility:
         marshaled_frames_header = header.marshal()
         return marshaled_frames_header + marshaled_frames_body
 
-    def decode_basic_publish(self, method):
+    @staticmethod
+    def decode_basic_publish(method, data_in):
+        print('decode_basic_publish')
         global _routing_key
+        print("OVO JE PRVI PRIJEM")
+        print(method.method.NAME)
         exchange = find_item(method.method.exchange, _exchange_array)
         routing_key = method.method.routing_key
         _routing_key = routing_key
-        data_in = self.client_sock.recv(MAX_BYTES, 0)
-        byte_received, method = decode_frame(data_in)
-        if method.NAME == Header.NAME:
-            message = decode_message_from_header(data_in)
-            exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message,
+        while True:
+            #data_in = self.client_sock.recv(MAX_BYTES, 0)
+            data_in = decode_publish_further(data_in)
+            byte_received, method = decode_frame(data_in)
+            print("OVO JE DRUGI PRIJEM")
+            print(method.NAME)
+            if method.NAME == Header.NAME:
+                message = decode_message_from_header(data_in)
+                exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message,
                                                       routing_key)
-            event.set()
-        else:
-            print("Error: couldn't receive message...")
+                event.set()
+                break
+            elif method.NAME == Body.NAME:
+                message = decode_message_from_body(data_in)
+                exchange.push_message_to_all_bound_queus(exchange, bindings.bindings_list, _queue_array, message,
+                                                     routing_key)
+                break
+            else:
+                print("Error: couldn't receive message...")
 
     def handle_consumer(self, consumer, channel_number):
         queue = find_item(consumer.queue, _queue_array)
@@ -231,9 +247,9 @@ class Utility:
                 print("Waiting for messages...")  # pogledaj sta treba da radim kad posalje heartbeat
                 break
             else:
-                self.switch(method)
+                self.switch(method, data_in)
 
-    def switch(self, method):
+    def switch(self, method, data_in):
         if method.method.NAME == Connection.StartOk.NAME:
             return self.send_tune_method()
         elif method.method.NAME == Connection.Open.NAME:
@@ -247,7 +263,7 @@ class Utility:
         elif method.method.NAME == Exchange.Declare.NAME:
             return self.send_exchange_declare_ok(method)
         elif method.method.NAME == Basic.Publish.NAME:
-            return self.decode_basic_publish(method)
+            return self.decode_basic_publish(method, data_in)
         elif method.method.NAME == Channel.Close.NAME:
             return self.send_channel_close_ok_method(method)
         elif method.method.NAME == Connection.Close.NAME:
