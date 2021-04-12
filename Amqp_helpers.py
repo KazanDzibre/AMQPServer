@@ -3,7 +3,7 @@ import struct
 from pika import exceptions
 from pika.compat import byte
 from pika.connection import Parameters
-import random
+from pika.frame import Method, Header, Body
 import string
 
 HOSTNAME = 'localhost'
@@ -156,3 +156,68 @@ def compare_key_for_hash(string1, string2):
         return True
     else:
         return False
+
+
+def decode_data(data_in):
+    try:
+        (frame_type, channel_number, frame_size) = struct.unpack('>BHL', data_in[0:7])
+    except struct.error:
+        return 1, None         #1 ako nije uopste uspeo da procita header
+
+    frame_end = spec.FRAME_HEADER_SIZE + frame_size + spec.FRAME_END_SIZE
+
+    frame_data = data_in[spec.FRAME_HEADER_SIZE:frame_end - 1]
+
+    if frame_type == spec.FRAME_METHOD:
+
+        method_id = struct.unpack_from('>I', frame_data)[0]
+
+        method = spec.methods[method_id]()
+
+        method.decode(frame_data, 4)
+
+        return 0, Method(channel_number, method) #ako je metoda
+
+    elif frame_type == spec.FRAME_HEADER:
+
+        class_id, weight, body_size = struct.unpack_from('>HHQ', frame_data)
+
+        properties = spec.props[class_id]()
+
+        out = properties.decode(frame_data[12:])
+
+        return 2, Header(channel_number, body_size, properties) #ako su header ili body
+
+    elif frame_type == spec.FRAME_BODY:
+
+        return 2, Body(channel_number, frame_data)
+
+    else:
+
+        return 1, None #opet ako nije nista sto je predvidjeno
+
+
+def find_frame_end(data_in):
+    count_bytes = 0
+
+    for i in data_in:
+        if i == 'xce':
+            break
+        count_bytes += 1
+
+    return data_in[count_bytes:]
+
+
+def publish_message(data_in, method, exchange, bindings, _queue_array, routing_key):
+    if method.NAME == Header.NAME:
+        message = decode_message_from_header(data_in)
+        exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message,
+                                                  routing_key)
+        print("message pushed to queues...")
+    elif method.NAME == Body.NAME:
+        message = decode_message_from_body(data_in)
+        exchange.push_message_to_all_bound_queus(exchange, bindings.bindings_list, _queue_array, message,
+                                                 routing_key)
+        print("message pushed to queues...")
+    else:
+        print("Error: couldn't receive message...")

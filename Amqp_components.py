@@ -12,7 +12,6 @@ from Amqp_consumer import AmqpConsumer
 from Amqp_helpers import *
 from Amqp_bindings import AmqpBinding
 
-
 threadLock = threading.Lock()
 
 _exchange_num = 0
@@ -195,34 +194,28 @@ class Utility:
         marshaled_frames_header = header.marshal()
         return marshaled_frames_header + marshaled_frames_body
 
-    @staticmethod
-    def decode_basic_publish(method, data_in):
+    def decode_basic_publish(self, method, data_in):
         print('decode_basic_publish')
         global _routing_key
-        print("OVO JE PRVI PRIJEM")
         print(method.method.NAME)
         exchange = find_item(method.method.exchange, _exchange_array)
         routing_key = method.method.routing_key
         _routing_key = routing_key
         while True:
-            #data_in = self.client_sock.recv(MAX_BYTES, 0)
-            data_in = decode_publish_further(data_in)
-            byte_received, method = decode_frame(data_in)
-            print("OVO JE DRUGI PRIJEM")
-            print(method.NAME)
-            if method.NAME == Header.NAME:
-                message = decode_message_from_header(data_in)
-                exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message,
-                                                      routing_key)
-                event.set()
-                break
-            elif method.NAME == Body.NAME:
-                message = decode_message_from_body(data_in)
-                exchange.push_message_to_all_bound_queus(exchange, bindings.bindings_list, _queue_array, message,
-                                                     routing_key)
-                break
+            publish_message(data_in, method, exchange, bindings, _queue_array, routing_key)
+            
+
+        while True:
+            data_in = self.client_sock.recv(MAX_BYTES, 0)
+            check_id, method = decode_data(data_in)
+            if check_id == 2:
+
+            elif check_id == 0:
+                if method.method.NAME == Connection.Close.NAME:
+                    return self.send_connection_close_ok()
             else:
-                print("Error: couldn't receive message...")
+                data_in = find_frame_end(data_in)
+                print("couldn't read message...")
 
     def handle_consumer(self, consumer, channel_number):
         queue = find_item(consumer.queue, _queue_array)
