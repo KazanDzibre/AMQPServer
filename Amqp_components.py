@@ -1,6 +1,5 @@
 import socket
 import threading
-import time
 
 from pika.spec import BasicProperties
 from pika.spec import Channel, Queue, Basic, Connection, Exchange
@@ -194,28 +193,20 @@ class Utility:
         marshaled_frames_header = header.marshal()
         return marshaled_frames_header + marshaled_frames_body
 
-    def decode_basic_publish(self, method, data_in):
-        print('decode_basic_publish')
+    @staticmethod
+    def decode_basic_publish(method, data_in):
         global _routing_key
-        print(method.method.NAME)
+        threadLock.acquire()
         exchange = find_item(method.method.exchange, _exchange_array)
         routing_key = method.method.routing_key
         _routing_key = routing_key
-        while True:
-            publish_message(data_in, method, exchange, bindings, _queue_array, routing_key)
-            
-
-        while True:
-            data_in = self.client_sock.recv(MAX_BYTES, 0)
-            check_id, method = decode_data(data_in)
-            if check_id == 2:
-
-            elif check_id == 0:
-                if method.method.NAME == Connection.Close.NAME:
-                    return self.send_connection_close_ok()
-            else:
-                data_in = find_frame_end(data_in)
-                print("couldn't read message...")
+        data_in = return_header(data_in)
+        data_in = return_body(data_in)
+        message = decode_message_from_body(data_in)
+        exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message, routing_key)
+        print("message published...")
+        event.set()
+        threadLock.release()
 
     def handle_consumer(self, consumer, channel_number):
         queue = find_item(consumer.queue, _queue_array)
@@ -224,10 +215,12 @@ class Utility:
         while True:
             event.wait()
             while len(queue.queue) > 0:
+                threadLock.acquire()
                 message = queue.queue.pop()
                 print("Sending message... ")
                 self.basic_deliver_method(channel_number, consumer.get_tag(), message)
                 print("Message sent... ")
+                threadLock.release()
             event.clear()
 
     def handler(self):
@@ -237,7 +230,7 @@ class Utility:
                 break
             byte_received, method = decode_frame(data_in)
             if method.NAME == Heartbeat.NAME:
-                print("Waiting for messages...")  # pogledaj sta treba da radim kad posalje heartbeat
+                print("Waiting for messages...")
                 break
             else:
                 self.switch(method, data_in)
