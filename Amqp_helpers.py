@@ -7,7 +7,7 @@ import random
 import string
 
 HOSTNAME = 'localhost'
-MAX_BYTES = 131072
+MAX_BYTES = 1089
 CHANNEL_MAX = 2047
 FRAME_MAX = 131072
 HEARTBEAT = 60

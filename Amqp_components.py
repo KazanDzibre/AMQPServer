@@ -43,8 +43,9 @@ class Utility:
         _exchange_num += 1
         threadLock.release()
         print("Default exchange created")
-        t = threading.Thread(target=self.init_protocol)
-        t.start()
+        self.init_protocol()
+        #t = threading.Thread(target=self.init_protocol)
+        #t.start()
 
     def init_protocol(self):
         print("Init protocol...")
@@ -193,20 +194,28 @@ class Utility:
         marshaled_frames_header = header.marshal()
         return marshaled_frames_header + marshaled_frames_body
 
-    @staticmethod
-    def decode_basic_publish(method, data_in):
+    #def decode_basic_publish(self, method, data_in):
+    #    client_thread = threading.Thread(target=self.handle_client, args=[method, data_in, ])
+    #    client_thread.start()
+
+    def handle_client(self, method, data_in):
         global _routing_key
-        threadLock.acquire()
-        exchange = find_item(method.method.exchange, _exchange_array)
-        routing_key = method.method.routing_key
-        _routing_key = routing_key
-        data_in = return_header(data_in)
-        data_in = return_body(data_in)
-        message = decode_message_from_body(data_in)
-        exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message, routing_key)
-        print("message published...")
-        event.set()
-        threadLock.release()
+        while True:
+            if method.method.NAME == Basic.Publish.NAME:
+                data_in = return_header(data_in)
+                data_in = return_body(data_in)
+                message = decode_message_from_body(data_in)
+                exchange = find_item(method.method.exchange, _exchange_array)
+                routing_key = method.method.routing_key
+                _routing_key = routing_key
+                threadLock.acquire()
+                exchange.push_message_to_all_bound_queues(exchange, bindings.bindings_list, _queue_array, message,
+                                                          routing_key)
+                print("message published...")
+                event.set()
+                threadLock.release()
+            data_in = self.client_sock.recv(MAX_BYTES, 0)
+            bytes_received, method = decode_frame(data_in)
 
     def handle_consumer(self, consumer, channel_number):
         queue = find_item(consumer.queue, _queue_array)
@@ -249,7 +258,7 @@ class Utility:
         elif method.method.NAME == Exchange.Declare.NAME:
             return self.send_exchange_declare_ok(method)
         elif method.method.NAME == Basic.Publish.NAME:
-            return self.decode_basic_publish(method, data_in)
+            return self.handle_client(method, data_in)
         elif method.method.NAME == Channel.Close.NAME:
             return self.send_channel_close_ok_method(method)
         elif method.method.NAME == Connection.Close.NAME:

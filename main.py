@@ -16,7 +16,9 @@ if __name__ == "__main__":
     while True:
         client_sock, client_address = sock.accept()
         print("Accepted client ", client_address)
-        utility = Utility(client_sock)
+        t = threading.Thread(target=Utility, args=[client_sock, ])
+        t.start()
+        #utility = Utility(client_sock)
     print('Closing Connection...')
     utility.client_sock.close()
 
